@@ -1,0 +1,6 @@
+pkg/bpf/bpf_bpfeb.o
+pkg/bpf/bpf_bpfeb.go
+pkg/bpf/bpf_bpfel.o
+pkg/bpf/bpf_bpfel.go
+
+bin/

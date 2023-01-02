@@ -1,0 +1,15 @@
+apiVersion: egress.skouter/v1alpha1
+kind: Egress
+metadata:
+  name: example
+spec:
+  podSelector:
+    matchLabels:
+      run: alpine
+  rules:
+    - domains:
+      - example.com
+      - httpbin.org
+      ports:
+      - 80
+      - 443

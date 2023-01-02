@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: skouter
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: skouter
+  template:
+    metadata:
+      labels:
+        app: skouter
+    spec:
+      serviceAccountName: skouter
+      volumes:
+        - name: cgroup2
+          hostPath:
+            path: /sys/fs/cgroup
+        - name: bpffs
+          hostPath:
+            path: /sys/fs/bpf
+      containers:
+      - name: controller
+        image: skouter:local
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        args:
+          - "--loglevel"
+          - "debug"
+          - "--node-name"
+          - "$(NODE_NAME)"
+          - "--cgroupfs"
+          - "/host/sys/fs/cgroup"
+          - "--bpffs"
+          - "/host/sys/fs/bpf"
+        env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+        volumeMounts:
+          - mountPath: /host/sys/fs/cgroup
+            name: cgroup2
+          - mountPath: /host/sys/fs/bpf
+            name: bpffs
+---

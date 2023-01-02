@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: alpine
+  name: alpine
+  namespace: default
+spec:
+  containers:
+    - name: alpine
+      image: alpine
+      imagePullPolicy: IfNotPresent
+      args:
+        - /bin/sleep
+        - "728800"
