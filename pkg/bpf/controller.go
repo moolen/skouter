@@ -25,7 +25,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event bpf cgroup_skb.c -- -I./headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event bpf ./c/cgroup_skb.c -- -I./c/headers
 type Controller struct {
 	ctx        context.Context
 	client     client.Client
@@ -179,7 +179,14 @@ func (c *Controller) loadBPFProgs(pinPath string) error {
 		Maps: ebpf.MapOptions{
 			PinPath: pinPath,
 		},
+		Programs: ebpf.ProgramOptions{
+			LogSize: 1024 * 1024 * 10,
+		},
 	})
+	var ve *ebpf.VerifierError
+	if errors.As(err, &ve) {
+		c.log.Error(strings.Join(ve.Log, "\n"))
+	}
 	if err != nil {
 		return err
 	}

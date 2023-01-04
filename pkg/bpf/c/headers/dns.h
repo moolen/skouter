@@ -6,7 +6,7 @@
 // Dated : 29/4/2009
 
 // DNS header structure
-struct DNS_HEADER {
+struct dnshdr {
     unsigned short id; // identification number
 
     unsigned char rd :1; // recursion desired
