@@ -20,6 +20,23 @@ spec:
         - name: bpffs
           hostPath:
             path: /sys/fs/bpf
+      initContainers:
+      - name: mount-bpf-fs
+        image: skouter:local
+        imagePullPolicy: IfNotPresent
+        args:
+        - 'mount | grep "/sys/fs/bpf type bpf" || mount -t bpf bpf /sys/fs/bpf'
+        command:
+        - /bin/sh
+        - -c
+        - --
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
       containers:
       - name: controller
         image: skouter:local
@@ -35,6 +52,7 @@ spec:
           - "/host/sys/fs/cgroup"
           - "--bpffs"
           - "/host/sys/fs/bpf"
+          - --userspace-dns-parser
         env:
           - name: NODE_NAME
             valueFrom:

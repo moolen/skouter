@@ -107,7 +107,7 @@ var rootCmd = &cobra.Command{
 		log.Info("launching egress resource controller manager")
 		go mgr.Start(ctx)
 
-		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, log, updateTicker)
+		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, allowedDNS, userspaceDNSParser, log, updateTicker)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -129,11 +129,13 @@ func Execute() {
 }
 
 var (
-	nodeName   string
-	logLevel   string
-	kubeconfig string
-	cgroupfs   string
-	bpffs      string
+	nodeName           string
+	logLevel           string
+	kubeconfig         string
+	cgroupfs           string
+	bpffs              string
+	allowedDNS         string
+	userspaceDNSParser bool
 )
 
 func init() {
@@ -142,6 +144,8 @@ func init() {
 	rootCmd.Flags().StringVar(&nodeName, "node-name", "", "")
 	rootCmd.Flags().StringVar(&cgroupfs, "cgroupfs", "/sys/fs/cgroup/kubepods.slice", "")
 	rootCmd.Flags().StringVar(&bpffs, "bpffs", "/sys/fs/bpf", "")
+	rootCmd.Flags().StringVar(&allowedDNS, "allowed-dns", "10.96.0.10", "allowed dns server address")
+	rootCmd.Flags().BoolVar(&userspaceDNSParser, "userspace-dns-parser", false, "parse dns packets in userspace")
 	rootCmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig to use (out-of-cluster config)")
 }
 

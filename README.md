@@ -4,10 +4,14 @@ cloud-native egress proxy.
 
 ---
 
+
+## Iteration 1: parse DNS response in userspace
 ![overview](overview.png)
 
 
-This is merely a POC to educate myself.
+## Iteration 2: parse DNS response in eBPF
+// todo: add graphic
+
 
 ## Rationale
 
@@ -39,6 +43,13 @@ The kernel retries the initial SYN after 1s.
 I'd like to get rid of parsing DNS responses in userspace and instead implement a stripped-down eBPF DNS parser that works just for this use-case. Tho getting that to work requires a lot of massaging the code for the eBPF verifier.
 
 There are [some papers](https://www.nlnetlabs.nl/downloads/publications/DNS-augmentation-with-eBPF.pdf) and [talks](https://www.nanog.org/news-stories/nanog-tv/nanog-81-webcast/xdperiments-tinkering-with-dns-and-xdp/) that touch that topic including source code that may help anyone that picks this up.
+
+Others:
+* CIDR range per node is /24
+* DNS parser
+  * max 1 answer
+  * hostname max len: 64
+  * multiple DNS qname pointers are not supported (chaining 0xC0)
 
 ## Further improvements
 
