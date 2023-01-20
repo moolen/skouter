@@ -52,7 +52,6 @@ spec:
           - "/host/sys/fs/cgroup"
           - "--bpffs"
           - "/host/sys/fs/bpf"
-          - --userspace-dns-parser
         env:
           - name: NODE_NAME
             valueFrom:
