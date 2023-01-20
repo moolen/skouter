@@ -45,14 +45,15 @@ Others:
 
 ## Further improvements
 
-* ~~implement DNS parsing in eBPF (beware, there be dragons!)~~ This is completely nuts
-* validate kube-dns source/dest IP for DNS lookups
-* track source port of DNS query and match it with response (make spoofing harder)
-* support DNS over TCP
-* support IPv6
-* clean up deleted IPs
-* lift limitation of 256 adresses per node
-* consider pivoting into making this a central egress infrastructure by ip forwarding ip packets while still supporting kubernetes integration
+- [ ] ~~implement DNS parsing in eBPF (beware, there be dragons!)~~ This is completely nuts
+- [x] validate kube-dns source/dest IP for DNS lookups
+- [ ] track source port/id of DNS query and match it with response (make spoofing harder)
+- [ ] support DNS over TCP
+- [ ] regex hostnames
+- [ ] support IPv6
+- [x] clean up deleted IPs
+- [ ] lift limitation of 256 adresses per node
+- [ ] consider pivoting into making this a central egress infrastructure by ip forwarding ip packets while still supporting kubernetes integration
 
 ## Example
 

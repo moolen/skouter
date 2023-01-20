@@ -354,11 +354,32 @@ func (c *Controller) updateConfig() error {
 		return err
 	}
 
+	updateDNS := func(key uint32, innerID ebpf.MapID) {
+		m, err := ebpf.NewMapFromID(innerID)
+		if err != nil {
+			c.log.Error(err)
+			return
+		}
+		// allow pod to access DNS Server
+		c.log.Debugf("setting allowed dns server addr=%d for key=%d", c.allowedDNS, key)
+		err = m.Update(c.allowedDNS, ActionAllow, ebpf.UpdateAny)
+		if err != nil {
+			c.log.Errorf("unable to set upstream DNS server address")
+		}
+		// TODO: store allowed DNS in dedicated map
+		zero := uint32(0)
+		err = m.Update(zero, c.allowedDNS, ebpf.UpdateAny)
+		if err != nil {
+			c.log.Errorf("unable to set upstream DNS server address")
+		}
+	}
+
 	// set up outer map and store IPs
 	for key := range podIPMap {
 		var innerID ebpf.MapID
 		err = c.podConfigMap.Lookup(key, &innerID)
 		if err == nil {
+			updateDNS(key, innerID)
 			continue
 		}
 		if !errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -383,18 +404,8 @@ func (c *Controller) updateConfig() error {
 			c.log.Errorf("unable to get pod_config map id: %s", err.Error())
 			continue
 		}
-		err = c.podConfigMap.Update(key, uint32(m.FD()), ebpf.UpdateAny)
-		if err != nil {
-			c.log.Errorf("unable to put inner map id %d into outer map: %s", innerID, err.Error())
-			continue
-		}
+		updateDNS(key, innerID)
 
-		// allow pod to access DNS Server
-		c.log.Debugf("setting allowed dns server addr=%d for key=%d", c.allowedDNS, key)
-		err = m.Update(c.allowedDNS, ActionAllow, ebpf.UpdateAny)
-		if err != nil {
-			c.log.Errorf("unable to set upstream DNS server address")
-		}
 	}
 
 	c.hostIdxmu.Lock()

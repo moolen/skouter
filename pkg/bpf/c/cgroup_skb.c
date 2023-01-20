@@ -80,14 +80,25 @@ int capture_packets(struct __sk_buff *skb) {
     return 1;
   }
 
-  __be32 outer_key = key_for_addr(ip->daddr);
-  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &outer_key);
+  __be32 pod_key = key_for_addr(ip->daddr);
+  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &pod_key);
   if (inner_map == NULL) {
     bpf_printk("no pod config");
     return 1;
   }
+  __u32 zero = 0;
+  __u32 *dns_upstream_addr = bpf_map_lookup_elem(inner_map, &zero);
+  if (dns_upstream_addr == NULL) {
+    bpf_printk("no value for ip %d in inner map, blocking", ip->daddr);
+    return 0;
+  }
 
-  bpf_printk("sending to ringbuf");
+  if (ip->saddr != *dns_upstream_addr) {
+    bpf_printk("DNS packet not from trusted source saddr=%d", ip->saddr);
+    return 0;
+  }
+
+  // TODO: verify DNS ID
 
   struct event *ev;
   ev = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
@@ -121,32 +132,19 @@ int egress(struct __sk_buff *skb) {
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
 
-  // struct ethhdr *eth = data;
   struct iphdr *ip = (data);
-  struct udphdr *udp = (data + sizeof(struct iphdr));
-
   if (data + sizeof(struct iphdr) + sizeof(struct udphdr) > data_end) {
     return 1;
   }
 
-  // TODO:
-  // - verify DNS destination addr matches kube-system/kube-dns service
-  if (ip->protocol == PROTO_UDP && udp->dest == PORT_DNS) {
-    bpf_printk("skipping initial dns query dst=%lu src=%lu", ip->daddr,
-               ip->saddr);
-    return 1;
-  }
-
-  __be32 outer_key = key_for_addr(ip->saddr);
-  // bpf_printk("saddr=%lu daddr=%lu outer_key=%lu", ip->saddr, ip->daddr,
-  //            outer_key);
-  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &outer_key);
+  __be32 pod_key = key_for_addr(ip->saddr);
+  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &pod_key);
   if (inner_map == NULL) {
-    // case: this pod is not subject to egress policies
+    // case: this pod is not subject to egress policies2
     return 1;
   }
 
-  bpf_printk("pod is subject to egress filter key=%d addr=%d", outer_key,
+  bpf_printk("pod is subject to egress filter key=%d addr=%d", pod_key,
              ip->saddr);
 
   __u8 *allowed = bpf_map_lookup_elem(inner_map, &ip->daddr);
