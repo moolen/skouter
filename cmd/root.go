@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 
 	v1alpha1 "github.com/moolen/skouter/api"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -107,7 +110,8 @@ var rootCmd = &cobra.Command{
 		log.Info("launching egress resource controller manager")
 		go mgr.Start(ctx)
 
-		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, allowedDNS, log, updateTicker)
+		reg := prometheus.NewRegistry()
+		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, allowedDNS, log, updateTicker, reg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -119,6 +123,8 @@ var rootCmd = &cobra.Command{
 				log.Fatalf("bpf controller failed to run: %s", err.Error())
 			}
 		}()
+		http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+		go http.ListenAndServe(":3000", nil)
 
 		<-ctx.Done()
 	},

@@ -49,6 +49,8 @@ Others:
 - [x] validate kube-dns source/dest IP for DNS lookups
 - [ ] track source port/id of DNS query and match it with response (make spoofing harder)
 - [ ] support DNS over TCP
+- [x] support CNAME records
+- [x] packet-level metrics
 - [ ] regex hostnames
 - [ ] support IPv6
 - [x] clean up deleted IPs

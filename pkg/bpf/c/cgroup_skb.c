@@ -46,14 +46,50 @@ struct {
   __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
   __uint(max_entries, MAX_IP_ENTRIES);
   __type(key, __u32); // pod IPv4 address
-
-  // do not pin right now, this causes
-  // too many issues when developing/restarting
-  // b/c the controller does not reconile
-  // TODO: re-enable later once stabilized
   __uint(pinning, LIBBPF_PIN_BY_NAME);
   __array(values, struct pod_egress_config);
 } pod_config SEC(".maps");
+
+// map to store the upstream dns server address
+// this is used to verify the dst address (egress) or
+// src address (ingress).
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 20);
+  __type(key, __u32);   // has just one entry
+  __type(value, __u32); // upstream dns server address
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+} dns_config SEC(".maps");
+
+// packet metrics
+// the following #defines specify the indices in
+// the the metrics map
+#define METRICS_EGRESS_ALLOWED 1
+#define METRICS_EGRESS_BLOCKED 2
+#define METRICS_EGRESS_DNS 3
+
+// TODO: make these metrics per-pod
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 5);
+  __type(key, __u32);   // metric index, see #define above
+  __type(value, __u32); // counter value
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+} metrics SEC(".maps");
+
+// increments the metric with the given key
+void metrics_inc(__u32 key) {
+  bpf_printk("inc metrics key=%d", key);
+  __u32 init_val = 1;
+  __u32 *count = bpf_map_lookup_elem(&metrics, &key);
+  if (!count) {
+    bpf_printk("setting initial value key=%d", key);
+    bpf_map_update_elem(&metrics, &key, &init_val, BPF_ANY);
+    return;
+  }
+  __sync_fetch_and_add(count, 1);
+  bpf_printk("inc metrics key=%d val=%d", key, *count);
+}
 
 __u32 key_for_addr(__u32 addr) { return bpf_ntohl(addr) % 255; }
 
@@ -63,7 +99,6 @@ int capture_packets(struct __sk_buff *skb) {
   void *data_end = (void *)(long)skb->data_end;
   const __u8 dns_offset = sizeof(struct iphdr) + sizeof(struct udphdr);
 
-  // struct ethhdr *eth = data;
   struct iphdr *ip = (data);
   struct udphdr *udp = (data + sizeof(struct iphdr));
 
@@ -80,30 +115,32 @@ int capture_packets(struct __sk_buff *skb) {
     return 1;
   }
 
+  // first, check if pod is subject to egress policies
+  // if not, return early
   __be32 pod_key = key_for_addr(ip->daddr);
   __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &pod_key);
   if (inner_map == NULL) {
-    bpf_printk("no pod config");
     return 1;
   }
-  __u32 zero = 0;
-  __u32 *dns_upstream_addr = bpf_map_lookup_elem(inner_map, &zero);
+
+  __u32 key = 1;
+  __u32 *dns_upstream_addr = bpf_map_lookup_elem(&dns_config, &key);
   if (dns_upstream_addr == NULL) {
-    bpf_printk("no value for ip %d in inner map, blocking", ip->daddr);
-    return 0;
+    bpf_printk("no dns upstream addr in dns config");
+    return 1;
   }
 
   if (ip->saddr != *dns_upstream_addr) {
-    bpf_printk("DNS packet not from trusted source saddr=%d", ip->saddr);
-    return 0;
+    bpf_printk("DNS packet not from trusted source saddr=%d dns=%d", ip->saddr,
+               *dns_upstream_addr);
+    return 1;
   }
 
   // TODO: verify DNS ID
-
   struct event *ev;
   ev = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
   if (!ev) {
-    return 0;
+    return 1;
   }
 
   ev->pod_key = key_for_addr(ip->daddr);
@@ -120,8 +157,6 @@ int capture_packets(struct __sk_buff *skb) {
 
   // TODO:
   // - parse DNS packet header & only forward DNS responses
-  // - verify DNS response source addr (coming from kube-system/kube-dns
-  // services)
   // - support DNS over TCP
   bpf_ringbuf_submit(ev, 0);
   return 1;
@@ -137,10 +172,21 @@ int egress(struct __sk_buff *skb) {
     return 1;
   }
 
+  // check if pod is subject to egress policies
   __be32 pod_key = key_for_addr(ip->saddr);
   __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &pod_key);
   if (inner_map == NULL) {
-    // case: this pod is not subject to egress policies2
+    return 1;
+  }
+
+  // pass traffic if destination is upstream dns server
+  __u32 dnsk = 1;
+  __u32 *dns_upstream_addr = bpf_map_lookup_elem(&dns_config, &dnsk);
+  if (dns_upstream_addr == NULL) {
+    return 1;
+  }
+  if (ip->daddr == *dns_upstream_addr) {
+    metrics_inc(METRICS_EGRESS_DNS);
     return 1;
   }
 
@@ -149,17 +195,20 @@ int egress(struct __sk_buff *skb) {
 
   __u8 *allowed = bpf_map_lookup_elem(inner_map, &ip->daddr);
   if (allowed == NULL) {
+    metrics_inc(METRICS_EGRESS_BLOCKED);
     bpf_printk("no value for ip %d in inner map, blocking", ip->daddr);
     return 0;
   }
   // block
   if (*allowed == TC_BLOCK) {
     bpf_printk("blocking %d", ip->daddr);
+    metrics_inc(METRICS_EGRESS_BLOCKED);
     return 0;
   }
   // allow
   else if (*allowed == TC_ALLOW) {
     bpf_printk("allowing %d", ip->daddr);
+    metrics_inc(METRICS_EGRESS_ALLOWED);
     return 1;
   }
   return 1;

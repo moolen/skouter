@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/miekg/dns"
 	v1alpha1 "github.com/moolen/skouter/api"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,8 +43,10 @@ type Controller struct {
 
 	captureIngressProg *ebpf.Program
 	egressProg         *ebpf.Program
-	podConfigMap       *ebpf.Map
+	podConfig          *ebpf.Map
+	dnsConfig          *ebpf.Map
 	eventsMap          *ebpf.Map
+	metricsMap         *ebpf.Map
 
 	ingressLink link.Link
 	egressLink  link.Link
@@ -65,7 +69,7 @@ var (
 	}
 )
 
-func New(ctx context.Context, client client.Client, cgroupfs, bpffs, allowedDNS string, log logrus.FieldLogger, updateChan chan struct{}) (*Controller, error) {
+func New(ctx context.Context, client client.Client, cgroupfs, bpffs, allowedDNS string, log logrus.FieldLogger, updateChan chan struct{}, reg *prometheus.Registry) (*Controller, error) {
 	// Allow the current process to lock memory for eBPF resources.
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, err
@@ -94,6 +98,7 @@ func New(ctx context.Context, client client.Client, cgroupfs, bpffs, allowedDNS 
 		return nil, err
 	}
 
+	newMetricsCollector(reg, ctrl)
 	return ctrl, nil
 }
 
@@ -112,8 +117,16 @@ func (c *Controller) Run() error {
 	// 2. query & store allowed hosts' IP addresses
 	// 3. block egress.
 
+	// set the upstream dns server
+	dnsk := uint32(1)
+	c.log.Infof("setting allowed dns: %d=>%d", dnsk, c.allowedDNS)
+	err := c.dnsConfig.Put(dnsk, c.allowedDNS)
+	if err != nil {
+		return fmt.Errorf("unable to set dns config: %w", err)
+	}
+
 	// pre-warm eBPF maps with fresh IPs from DNS
-	err := c.preWarm()
+	err = c.preWarm()
 	if err != nil {
 		return err
 	}
@@ -197,7 +210,8 @@ func (c *Controller) loadBPF() error {
 		return fmt.Errorf("failed to load bpf progs: %+v", err)
 	}
 
-	c.log.Infof("map pod_config pinned: %t", c.podConfigMap.IsPinned())
+	c.log.Infof("map pod_config pinned: %t", c.podConfig.IsPinned())
+	c.log.Infof("map dns_config pinned: %t", c.dnsConfig.IsPinned())
 
 	return err
 }
@@ -218,7 +232,9 @@ func (c *Controller) loadBPFMaps(pinPath string) error {
 		return fmt.Errorf("unable to load bpf: %s", err.Error())
 	}
 
-	c.podConfigMap = objs.bpfMaps.PodConfig
+	c.podConfig = objs.bpfMaps.PodConfig
+	c.dnsConfig = objs.bpfMaps.DnsConfig
+	c.metricsMap = objs.bpfMaps.Metrics
 	c.eventsMap = objs.bpfMaps.Events
 
 	return nil
@@ -296,18 +312,30 @@ func (c *Controller) processDNSQueries() {
 		var msg dns.Msg
 		err = msg.Unpack(event.Pkt[:event.Len])
 		if err != nil {
+			dnsParseError.WithLabelValues(strconv.FormatInt(int64(event.PodKey), 10)).Inc()
 			c.log.Error(err)
 			continue
 		}
 
+		var hostname string
 		for _, a := range msg.Answer {
+			// A CNAME record takes precedence over
+			// a plain A record that is sent along
+			cname, ok := a.(*dns.CNAME)
+			if ok {
+				hostname = cname.Header().Name
+				continue
+			}
 			// for now, only support ipv4
 			arec, ok := a.(*dns.A)
 			if !ok {
 				continue
 			}
 			v4 := arec.A.To4()
-			err = c.tryAllowAddress(arec.Header().Name, v4, event.PodKey)
+			if hostname == "" {
+				hostname = arec.Header().Name
+			}
+			err = c.tryAllowAddress(hostname, v4, event.PodKey)
 			if err != nil {
 				c.log.Errorf("unable to update dns record state: %s", err.Error())
 			}
@@ -320,6 +348,7 @@ func (c *Controller) tryAllowAddress(host string, addr net.IP, key uint32) error
 	defer c.hostIdxmu.RUnlock()
 	addrIdx, ok := c.hostIdx[host]
 	if !ok {
+		lookupForbiddenHostname.WithLabelValues(strconv.FormatUint(uint64(key), 10), host).Inc()
 		return fmt.Errorf("pod %d tried to access unallowed host: %s", key, host)
 	}
 
@@ -332,7 +361,7 @@ func (c *Controller) tryAllowAddress(host string, addr net.IP, key uint32) error
 	}
 
 	var innerID ebpf.MapID
-	err := c.podConfigMap.Lookup(key, &innerID)
+	err := c.podConfig.Lookup(key, &innerID)
 	if err != nil {
 		return fmt.Errorf("unable to lookup outer map: %s", err.Error())
 
@@ -354,32 +383,11 @@ func (c *Controller) updateConfig() error {
 		return err
 	}
 
-	updateDNS := func(key uint32, innerID ebpf.MapID) {
-		m, err := ebpf.NewMapFromID(innerID)
-		if err != nil {
-			c.log.Error(err)
-			return
-		}
-		// allow pod to access DNS Server
-		c.log.Debugf("setting allowed dns server addr=%d for key=%d", c.allowedDNS, key)
-		err = m.Update(c.allowedDNS, ActionAllow, ebpf.UpdateAny)
-		if err != nil {
-			c.log.Errorf("unable to set upstream DNS server address")
-		}
-		// TODO: store allowed DNS in dedicated map
-		zero := uint32(0)
-		err = m.Update(zero, c.allowedDNS, ebpf.UpdateAny)
-		if err != nil {
-			c.log.Errorf("unable to set upstream DNS server address")
-		}
-	}
-
 	// set up outer map and store IPs
 	for key := range podIPMap {
 		var innerID ebpf.MapID
-		err = c.podConfigMap.Lookup(key, &innerID)
+		err = c.podConfig.Lookup(key, &innerID)
 		if err == nil {
-			updateDNS(key, innerID)
 			continue
 		}
 		if !errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -404,8 +412,6 @@ func (c *Controller) updateConfig() error {
 			c.log.Errorf("unable to get pod_config map id: %s", err.Error())
 			continue
 		}
-		updateDNS(key, innerID)
-
 	}
 
 	c.hostIdxmu.Lock()
@@ -470,7 +476,7 @@ func (c *Controller) cleanupState(old, new map[string]map[uint32]struct{}) {
 
 	for _, podKey := range podsToRemove {
 		c.log.Debugf("deleting key: %d", podKey)
-		err := c.podConfigMap.Delete(podKey)
+		err := c.podConfig.Delete(podKey)
 		if err != nil && err != ebpf.ErrKeyNotExist {
 			c.log.Warnf("could not delete key %d: %v", podKey, err)
 		}
@@ -480,7 +486,7 @@ func (c *Controller) cleanupState(old, new map[string]map[uint32]struct{}) {
 	//         to block outgoing connections
 	for podKey, addrs := range hostsToRemove {
 		var innerID ebpf.MapID
-		err := c.podConfigMap.Lookup(podKey, &innerID)
+		err := c.podConfig.Lookup(podKey, &innerID)
 		if err != nil {
 			c.log.Warn("could not lookup pod key: %s", err)
 			continue
@@ -555,7 +561,8 @@ func (c *Controller) Close() {
 	c.egressProg.Close()
 	c.captureIngressProg.Close()
 
-	c.podConfigMap.Close()
+	c.podConfig.Close()
+	c.dnsConfig.Close()
 
 	c.ingressLink.Close()
 	c.egressLink.Close()
