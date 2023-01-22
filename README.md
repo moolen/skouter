@@ -47,7 +47,7 @@ Others:
 
 - [ ] ~~implement DNS parsing in eBPF (beware, there be dragons!)~~ This is completely nuts
 - [x] validate kube-dns source/dest IP for DNS lookups
-- [ ] track source port/id of DNS query and match it with response (make spoofing harder)
+- [x] track source port/id of DNS query and match it with response (make spoofing harder)
 - [ ] support DNS over TCP
 - [x] support CNAME records
 - [x] packet-level metrics

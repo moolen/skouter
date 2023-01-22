@@ -7,9 +7,9 @@ import (
 
 var (
 	packetsProcessed = prometheus.NewDesc(
-		"egress_packets_processed",
+		"packets_processed",
 		"Number of packets processed",
-		[]string{"verdict"}, nil,
+		[]string{"path", "type"}, nil,
 	)
 	lookupForbiddenHostname = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "lookup_forbidden_hostname",
@@ -37,18 +37,20 @@ func (cc MetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	// metric index in bpf map => label value
 	// indices are defined in cgroup_skb.c
-	metrics := map[uint32]string{
-		1: "ALLOW",
-		2: "BLOCK",
-		3: "ALLOW_DNS",
+	metrics := map[uint32][]string{
+		1: {"EGRESS", "ALLOW"},
+		2: {"EGRESS", "BLOCK"},
+		3: {"EGRESS", "ALLOW_DNS"},
+		4: {"INGRESS", "TXID_MISMATCH"},
+		5: {"INGRESS", "ROGUE_DNS"},
 	}
 
-	for key, metric := range metrics {
+	for key, lblValues := range metrics {
 		var val uint32
 		err := cc.controller.metricsMap.Lookup(key, &val)
 		if err != nil && err != ebpf.ErrKeyNotExist {
 			continue
 		}
-		ch <- prometheus.MustNewConstMetric(packetsProcessed, prometheus.CounterValue, float64(val), metric)
+		ch <- prometheus.MustNewConstMetric(packetsProcessed, prometheus.CounterValue, float64(val), lblValues...)
 	}
 }

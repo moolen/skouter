@@ -67,6 +67,8 @@ struct {
 #define METRICS_EGRESS_ALLOWED 1
 #define METRICS_EGRESS_BLOCKED 2
 #define METRICS_EGRESS_DNS 3
+#define METRICS_INGRESS_TXID_MISMATCH 4
+#define METRICS_INGRESS_ROGUE_DNS 5
 
 // TODO: make these metrics per-pod
 struct {
@@ -79,19 +81,74 @@ struct {
 
 // increments the metric with the given key
 void metrics_inc(__u32 key) {
-  bpf_printk("inc metrics key=%d", key);
   __u32 init_val = 1;
   __u32 *count = bpf_map_lookup_elem(&metrics, &key);
   if (!count) {
-    bpf_printk("setting initial value key=%d", key);
     bpf_map_update_elem(&metrics, &key, &init_val, BPF_ANY);
     return;
   }
   __sync_fetch_and_add(count, 1);
-  bpf_printk("inc metrics key=%d val=%d", key, *count);
 }
 
 __u32 key_for_addr(__u32 addr) { return bpf_ntohl(addr) % 255; }
+
+// store dns transaction id (+ip/port)
+// to impede DNS spoofing/poisoning attacks
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 1 << 16);
+  __type(key, __u64);  // ip src + udp src + dns id
+  __type(value, __u8); // noop
+} dns_tracker SEC(".maps");
+
+#define DNS_CHECK_SOURCE 1
+#define DNS_CHECK_DEST 2
+
+__u64 get_dns_key(struct __sk_buff *skb, __u8 check_type) {
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+  struct iphdr *ip = (data);
+  struct udphdr *udp = (data + sizeof(struct iphdr));
+  __u16 *dns_id = (data + sizeof(struct iphdr) + sizeof(struct udphdr));
+  if (data + sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(__u16) >
+      data_end) {
+    return -1;
+  }
+  if (check_type == DNS_CHECK_SOURCE) {
+    return ip->saddr + udp->source + *dns_id;
+  } else if (check_type == DNS_CHECK_DEST) {
+    return ip->daddr + udp->dest + *dns_id;
+  }
+  return -1;
+}
+
+// stores the dns id of a given skb
+// returns 0 on success, negative otherwise
+int store_dns_id(__u32 pod_key, struct __sk_buff *skb) {
+  __u64 dns_id = get_dns_key(skb, DNS_CHECK_SOURCE);
+  if (dns_id <= 0) {
+    return -1;
+  }
+  __u8 val = 1;
+  bpf_map_update_elem(&dns_tracker, &dns_id, &val, BPF_ANY);
+  return 0;
+}
+
+// looks up dns transaction id
+// and purges it if found.
+// returns 0 on success, negative otherwise.
+int lookup_dns_id(__u32 pod_key, struct __sk_buff *skb) {
+  __u64 dns_id = get_dns_key(skb, DNS_CHECK_DEST);
+  if (dns_id <= 0) {
+    return -1;
+  }
+  __u8 *ret = bpf_map_lookup_elem(&dns_tracker, &dns_id);
+  if (ret == NULL) {
+    return -1;
+  }
+  bpf_map_delete_elem(&dns_tracker, &dns_id);
+  return 0;
+}
 
 SEC("cgroup_skb/ingress")
 int capture_packets(struct __sk_buff *skb) {
@@ -131,12 +188,16 @@ int capture_packets(struct __sk_buff *skb) {
   }
 
   if (ip->saddr != *dns_upstream_addr) {
-    bpf_printk("DNS packet not from trusted source saddr=%d dns=%d", ip->saddr,
-               *dns_upstream_addr);
+    metrics_inc(METRICS_INGRESS_ROGUE_DNS);
     return 1;
   }
 
-  // TODO: verify DNS ID
+  int ret = lookup_dns_id(pod_key, skb);
+  if (ret != 0) {
+    metrics_inc(METRICS_INGRESS_TXID_MISMATCH);
+    return 1;
+  }
+
   struct event *ev;
   ev = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
   if (!ev) {
@@ -156,7 +217,6 @@ int capture_packets(struct __sk_buff *skb) {
   }
 
   // TODO:
-  // - parse DNS packet header & only forward DNS responses
   // - support DNS over TCP
   bpf_ringbuf_submit(ev, 0);
   return 1;
@@ -186,6 +246,7 @@ int egress(struct __sk_buff *skb) {
     return 1;
   }
   if (ip->daddr == *dns_upstream_addr) {
+    store_dns_id(pod_key, skb);
     metrics_inc(METRICS_EGRESS_DNS);
     return 1;
   }
