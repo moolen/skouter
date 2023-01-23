@@ -1,15 +1,28 @@
 package bpf
 
 import (
+	"bytes"
+	"encoding/binary"
+	"net"
+
 	"github.com/cilium/ebpf"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
+
+	// TODO: add node label to all metrics
+
 	packetsProcessed = prometheus.NewDesc(
 		"packets_processed",
 		"Number of packets processed",
 		[]string{"path", "type"}, nil,
+	)
+	// TODO: limit cardinality on this one
+	auditBlockedAddr = prometheus.NewDesc(
+		"audit_blocked_addr",
+		"Number of blocked packets in audit mode",
+		[]string{"ip"}, nil,
 	)
 	lookupForbiddenHostname = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "lookup_forbidden_hostname",
@@ -52,5 +65,19 @@ func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(packetsProcessed, prometheus.CounterValue, float64(val), lblValues...)
+	}
+
+	it := cc.controller.metricsBlockedAddr.Iterate()
+	var addr uint32
+	var count uint32
+	for it.Next(&addr, &count) {
+		var buf bytes.Buffer
+		err := binary.Write(&buf, binary.LittleEndian, addr)
+		if err != nil {
+			cc.controller.log.Warnf("unable to write binary addr: %s", err.Error())
+			continue
+		}
+		ipAddr := net.IP(buf.Bytes())
+		ch <- prometheus.MustNewConstMetric(auditBlockedAddr, prometheus.CounterValue, float64(count), ipAddr.String())
 	}
 }

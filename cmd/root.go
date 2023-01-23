@@ -8,6 +8,7 @@ import (
 	v1alpha1 "github.com/moolen/skouter/api"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -68,6 +70,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("unable to setup controller-runtime manager")
 		}
+		// setup indexer so we are able to list pods with nodeName
+		if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+			pod := o.(*v1.Pod)
+			return []string{pod.Spec.NodeName}
+		}); err != nil {
+			log.Fatal(err)
+		}
 
 		// this channel is used to indicate that the config
 		// should be reloaded/changed.
@@ -111,7 +120,7 @@ var rootCmd = &cobra.Command{
 		go mgr.Start(ctx)
 
 		reg := prometheus.NewRegistry()
-		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, allowedDNS, log, updateTicker, reg)
+		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, nodeName, nodeIP, allowedDNS, auditMode, log, updateTicker, reg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -141,20 +150,24 @@ func Execute() {
 
 var (
 	nodeName   string
+	nodeIP     string
+	auditMode  bool
 	logLevel   string
 	kubeconfig string
 	cgroupfs   string
 	bpffs      string
-	allowedDNS string
+	allowedDNS []string
 )
 
 func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&logLevel, "loglevel", "INFO", "loglevel to use (debug, info, warn, error)")
 	rootCmd.Flags().StringVar(&nodeName, "node-name", "", "")
+	rootCmd.Flags().StringVar(&nodeIP, "node-ip", "", "ip address of this node. Used to filter egress traffic on the host namespace.")
+	rootCmd.Flags().BoolVar(&auditMode, "audit-mode", false, "enable audit mode - no actual blocking will be done. This must be specified on start-up and can not be changed during runtime. Metrics `audit_blocked_addr` will contain the IPs egressing")
 	rootCmd.Flags().StringVar(&cgroupfs, "cgroupfs", "/sys/fs/cgroup/kubepods.slice", "")
 	rootCmd.Flags().StringVar(&bpffs, "bpffs", "/sys/fs/bpf", "")
-	rootCmd.Flags().StringVar(&allowedDNS, "allowed-dns", "10.96.0.10", "allowed dns server address")
+	rootCmd.Flags().StringArrayVar(&allowedDNS, "allowed-dns", []string{"10.96.0.10", "127.0.0.1", "127.0.0.11", "192.168.49.1"}, "allowed dns server address")
 	rootCmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig to use (out-of-cluster config)")
 }
 

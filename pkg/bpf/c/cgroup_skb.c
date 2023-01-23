@@ -5,7 +5,8 @@
 #define PROTO_UDP 17
 #define PORT_DNS 13568 // htons(53)
 
-#define MAX_IP_ENTRIES 256
+#define MAX_IP_ENTRIES 512
+#define MAX_EGRESS_IPS 4096
 #define MAX_LABELS 12
 #define MAX_ANS_COUNT 1
 #define MAX_ANS_ADDR 4
@@ -14,7 +15,6 @@
 
 #define TC_ALLOW 1
 #define TC_BLOCK 2
-#define TC_AUDIT 3
 
 struct event {
   u8 len;
@@ -35,7 +35,7 @@ struct {
 // lookup destination ip => allowed setting (TC_*)
 struct pod_egress_config {
   __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, MAX_IP_ENTRIES);
+  __uint(max_entries, MAX_EGRESS_IPS);
   __type(key, __u32);   // dest IPv4 address
   __type(value, __u32); // allowed setting
 };
@@ -55,9 +55,9 @@ struct {
 // src address (ingress).
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, 20);
-  __type(key, __u32);   // has just one entry
-  __type(value, __u32); // upstream dns server address
+  __uint(max_entries, MAX_IP_ENTRIES);
+  __type(key, __u32);   // upstream dns server address
+  __type(value, __u32); // noop
   __uint(pinning, LIBBPF_PIN_BY_NAME);
 } dns_config SEC(".maps");
 
@@ -79,6 +79,14 @@ struct {
   __uint(pinning, LIBBPF_PIN_BY_NAME);
 } metrics SEC(".maps");
 
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 1024);
+  __type(key, __u32);   // src/dst ip address
+  __type(value, __u32); // counter value
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+} metrics_blocked_addr SEC(".maps");
+
 // increments the metric with the given key
 void metrics_inc(__u32 key) {
   __u32 init_val = 1;
@@ -90,7 +98,15 @@ void metrics_inc(__u32 key) {
   __sync_fetch_and_add(count, 1);
 }
 
-__u32 key_for_addr(__u32 addr) { return bpf_ntohl(addr) % 255; }
+void metrics_inc_blocked_addr(__u32 addr) {
+  __u32 init_val = 1;
+  __u32 *count = bpf_map_lookup_elem(&metrics_blocked_addr, &addr);
+  if (!count) {
+    bpf_map_update_elem(&metrics_blocked_addr, &addr, &init_val, BPF_ANY);
+    return;
+  }
+  __sync_fetch_and_add(count, 1);
+}
 
 // store dns transaction id (+ip/port)
 // to impede DNS spoofing/poisoning attacks
@@ -114,12 +130,20 @@ __u64 get_dns_key(struct __sk_buff *skb, __u8 check_type) {
       data_end) {
     return -1;
   }
+
+  // The dns key is stored as a triplet containing ip source/dest address, udp source/dest port and dns tx id
+  // key layout:
+  // {32bit ip address} {16bit port} {16bit dns tx id}
+  __u64 out = 0;
   if (check_type == DNS_CHECK_SOURCE) {
-    return ip->saddr + udp->source + *dns_id;
+    out = ip->saddr << 31;
+    out += udp->source << 15;
   } else if (check_type == DNS_CHECK_DEST) {
-    return ip->daddr + udp->dest + *dns_id;
+    out = ip->daddr << 31;
+    out += udp->dest << 15;
   }
-  return -1;
+  out += *dns_id;
+  return out;
 }
 
 // stores the dns id of a given skb
@@ -150,6 +174,10 @@ int lookup_dns_id(__u32 pod_key, struct __sk_buff *skb) {
   return 0;
 }
 
+volatile const __u32 audit_mode = 0;
+
+int is_audit_mode() { return audit_mode; }
+
 SEC("cgroup_skb/ingress")
 int capture_packets(struct __sk_buff *skb) {
   void *data = (void *)(long)skb->data;
@@ -174,25 +202,19 @@ int capture_packets(struct __sk_buff *skb) {
 
   // first, check if pod is subject to egress policies
   // if not, return early
-  __be32 pod_key = key_for_addr(ip->daddr);
-  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &pod_key);
+  __u32 key = ip->daddr;
+  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &key);
   if (inner_map == NULL) {
     return 1;
   }
 
-  __u32 key = 1;
-  __u32 *dns_upstream_addr = bpf_map_lookup_elem(&dns_config, &key);
+  __u32 *dns_upstream_addr = bpf_map_lookup_elem(&dns_config, &ip->saddr);
   if (dns_upstream_addr == NULL) {
-    bpf_printk("no dns upstream addr in dns config");
-    return 1;
-  }
-
-  if (ip->saddr != *dns_upstream_addr) {
     metrics_inc(METRICS_INGRESS_ROGUE_DNS);
     return 1;
   }
 
-  int ret = lookup_dns_id(pod_key, skb);
+  int ret = lookup_dns_id(key, skb);
   if (ret != 0) {
     metrics_inc(METRICS_INGRESS_TXID_MISMATCH);
     return 1;
@@ -204,7 +226,7 @@ int capture_packets(struct __sk_buff *skb) {
     return 1;
   }
 
-  ev->pod_key = key_for_addr(ip->daddr);
+  ev->pod_key = key;
   for (int i = 0; i < MAX_PKT; i++) {
     if (dns_offset + i > ip->tot_len) {
       break;
@@ -232,43 +254,46 @@ int egress(struct __sk_buff *skb) {
     return 1;
   }
 
+  __u32 key = ip->saddr;
+
   // check if pod is subject to egress policies
-  __be32 pod_key = key_for_addr(ip->saddr);
-  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &pod_key);
+  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &key);
   if (inner_map == NULL) {
     return 1;
   }
 
   // pass traffic if destination is upstream dns server
-  __u32 dnsk = 1;
-  __u32 *dns_upstream_addr = bpf_map_lookup_elem(&dns_config, &dnsk);
-  if (dns_upstream_addr == NULL) {
-    return 1;
-  }
-  if (ip->daddr == *dns_upstream_addr) {
-    store_dns_id(pod_key, skb);
+  __u32 *ret = bpf_map_lookup_elem(&dns_config, &ip->daddr);
+  if (ret != NULL && *ret == 1) {
+    store_dns_id(key, skb);
     metrics_inc(METRICS_EGRESS_DNS);
     return 1;
   }
 
-  bpf_printk("pod is subject to egress filter key=%d addr=%d", pod_key,
-             ip->saddr);
+  bpf_printk("pod is subject to egress filter key=%d saddr=%d daddr=%d", key, ip->saddr, ip->daddr);
 
   __u8 *allowed = bpf_map_lookup_elem(inner_map, &ip->daddr);
   if (allowed == NULL) {
     metrics_inc(METRICS_EGRESS_BLOCKED);
     bpf_printk("no value for ip %d in inner map, blocking", ip->daddr);
+
+    if (is_audit_mode() == 1) {
+      metrics_inc_blocked_addr(ip->daddr);
+      return 1;
+    }
     return 0;
   }
   // block
   if (*allowed == TC_BLOCK) {
-    bpf_printk("blocking %d", ip->daddr);
     metrics_inc(METRICS_EGRESS_BLOCKED);
+    if (is_audit_mode() == 1) {
+      metrics_inc_blocked_addr(ip->daddr);
+      return 1;
+    }
     return 0;
   }
   // allow
   else if (*allowed == TC_ALLOW) {
-    bpf_printk("allowing %d", ip->daddr);
     metrics_inc(METRICS_EGRESS_ALLOWED);
     return 1;
   }

@@ -30,17 +30,21 @@ type Egress struct {
 }
 
 type EgressSpec struct {
-	PodSelector PodSelector  `json:"podSelector"`
-	Rules       []EgressRule `json:"rules,omitempty"`
+	// +kubebuilder:validation:Optional
+	PodSelector *Selector `json:"podSelector,omitempty"`
+	// +kubebuilder:validation:Optional
+	NodeSelector *Selector    `json:"nodeSelector,omitempty"`
+	Rules        []EgressRule `json:"rules,omitempty"`
 }
 
-type PodSelector struct {
+type Selector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
 type EgressRule struct {
-	Domains []string `json:"domains"`
-	Ports   []uint32 `json:"ports"`
+	Domains []string `json:"domains,omitempty"`
+	IPs     []string `json:"ips,omitempty"`
+	CIDRs   []string `json:"cidrs,omitempty"`
 }
 
 type EgressStatus struct {

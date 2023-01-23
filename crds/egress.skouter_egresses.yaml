@@ -37,6 +37,13 @@ spec:
             type: object
           spec:
             properties:
+              nodeSelector:
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
               podSelector:
                 properties:
                   matchLabels:
@@ -47,22 +54,20 @@ spec:
               rules:
                 items:
                   properties:
+                    cidrs:
+                      items:
+                        type: string
+                      type: array
                     domains:
                       items:
                         type: string
                       type: array
-                    ports:
+                    ips:
                       items:
-                        format: int32
-                        type: integer
+                        type: string
                       type: array
-                  required:
-                  - domains
-                  - ports
                   type: object
                 type: array
-            required:
-            - podSelector
             type: object
           status:
             properties:

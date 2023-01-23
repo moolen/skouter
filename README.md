@@ -17,6 +17,8 @@ Requirements:
 * provide a **DNS-based firewall** to allow/deny egress traffic
 * **no change of existing applications needed**: an app must not rely on `HTTP_PROXY` env variables or iptables traffic redirection
 * **no central infrastructure** for egress filtering: No single point of failure. Eliminate complexity introduced by HA architecture like leader election, state replication, snapshots for DR, VRRP.
+* is capable of filtering **host** egress traffic
+* supports audit mode that allows to discover traffic patterns before blocking them
 
 It runs on a cgroup2 skb hook. Essentially, all Kubernetes traffic from pods is subject to firewall policies (or all node traffic if attached to the root cgroup).
 It parses the DNS response packets from the trusted DNS server and allows/blocks traffic egressing from a pod.
@@ -53,8 +55,12 @@ Others:
 - [x] packet-level metrics
 - [ ] regex hostnames
 - [ ] support IPv6
+- [x] block host traffic
+- [x] support plain IPs
+- [ ] support IP cidr ranges
+- [x] audit mode (allow egress by default but log/store traffic patterns)
 - [x] clean up deleted IPs
-- [ ] lift limitation of 256 adresses per node
+- [x] ~~lift limitation of 256 adresses per node~~
 - [ ] consider pivoting into making this a central egress infrastructure by ip forwarding ip packets while still supporting kubernetes integration
 
 ## Example
