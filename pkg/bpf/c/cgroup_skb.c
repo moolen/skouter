@@ -11,14 +11,14 @@
 #define MAX_ANS_COUNT 1
 #define MAX_ANS_ADDR 4
 #define MAX_QNAME_LEN 64
-#define MAX_PKT 512
+#define MAX_PKT 768
 
 #define TC_ALLOW 1
 #define TC_BLOCK 2
 
 struct event {
-  u8 len;
-  __u32 pod_key;
+  __u16 len;
+  __u32 key;
   u8 pkt[MAX_PKT];
 };
 
@@ -48,7 +48,7 @@ struct {
   __type(key, __u32); // pod IPv4 address
   __uint(pinning, LIBBPF_PIN_BY_NAME);
   __array(values, struct pod_egress_config);
-} pod_config SEC(".maps");
+} egress_config SEC(".maps");
 
 // map to store the upstream dns server address
 // this is used to verify the dst address (egress) or
@@ -203,7 +203,7 @@ int capture_packets(struct __sk_buff *skb) {
   // first, check if pod is subject to egress policies
   // if not, return early
   __u32 key = ip->daddr;
-  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &key);
+  __u32 *inner_map = bpf_map_lookup_elem(&egress_config, &key);
   if (inner_map == NULL) {
     return 1;
   }
@@ -226,7 +226,7 @@ int capture_packets(struct __sk_buff *skb) {
     return 1;
   }
 
-  ev->pod_key = key;
+  ev->key = key;
   for (int i = 0; i < MAX_PKT; i++) {
     if (dns_offset + i > ip->tot_len) {
       break;
@@ -257,7 +257,7 @@ int egress(struct __sk_buff *skb) {
   __u32 key = ip->saddr;
 
   // check if pod is subject to egress policies
-  __u32 *inner_map = bpf_map_lookup_elem(&pod_config, &key);
+  __u32 *inner_map = bpf_map_lookup_elem(&egress_config, &key);
   if (inner_map == NULL) {
     return 1;
   }
@@ -275,7 +275,7 @@ int egress(struct __sk_buff *skb) {
   __u8 *allowed = bpf_map_lookup_elem(inner_map, &ip->daddr);
   if (allowed == NULL) {
     metrics_inc(METRICS_EGRESS_BLOCKED);
-    bpf_printk("no value for ip %d in inner map, blocking", ip->daddr);
+    bpf_printk("no value for ip %lu in inner map, blocking", ip->daddr);
 
     if (is_audit_mode() == 1) {
       metrics_inc_blocked_addr(ip->daddr);

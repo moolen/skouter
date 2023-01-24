@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: skouter
+  namespace: {{ .Release.Namespace | quote }}
+spec:
+  selector:
+    matchLabels:
+      app: skouter
+  template:
+    metadata:
+      labels:
+        app: skouter
+    spec:
+      serviceAccountName: skouter
+      volumes:
+        - name: cgroup2
+          hostPath:
+            path: /sys/fs/cgroup
+        - name: bpffs
+          hostPath:
+            path: /sys/fs/bpf
+      initContainers:
+      - name: mount-bpf-fs
+        image: {{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: IfNotPresent
+        args:
+        - 'mount | grep "/sys/fs/bpf type bpf" || mount -t bpf bpf /sys/fs/bpf'
+        command:
+        - /bin/sh
+        - -c
+        - --
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+      containers:
+      - name: controller
+        image: {{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        args:
+          - "--loglevel"
+          - "debug"
+          - "--node-name"
+          - "$(NODE_NAME)"
+          - "--node-ip"
+          - "$(NODE_IP)"
+          - "--cgroupfs"
+          - "/host/sys/fs/cgroup"
+          - "--bpffs"
+          - "/host/sys/fs/bpf"
+          - "--audit-mode=false"
+        env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: NODE_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
+        volumeMounts:
+          - mountPath: /host/sys/fs/cgroup
+            name: cgroup2
+          - mountPath: /host/sys/fs/bpf
+            name: bpffs
+---

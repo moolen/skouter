@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/miekg/dns"
 	v1alpha1 "github.com/moolen/skouter/api"
+	cache "github.com/moolen/skouter/pkg/dns_cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -41,14 +42,15 @@ type Controller struct {
 	cgroupfs   string
 	bpffs      string
 	allowedDNS []uint32
+	dnsCache   *cache.Cache
 
 	hostIdxmu *sync.RWMutex
 	// hostIdx is a map: hostname => map[pod-key]=>allowed-state
 	hostIdx map[string]map[uint32]struct{}
 
-	captureIngressProg *ebpf.Program
+	ingressProg        *ebpf.Program
 	egressProg         *ebpf.Program
-	podConfig          *ebpf.Map
+	egressConfig       *ebpf.Map
 	dnsConfig          *ebpf.Map
 	eventsMap          *ebpf.Map
 	metricsMap         *ebpf.Map
@@ -109,6 +111,7 @@ func New(
 		cgroupfs:   cgroupfs,
 		bpffs:      bpffs,
 		allowedDNS: dnsAddrs,
+		dnsCache:   cache.New(log),
 		nodeName:   nodeName,
 		nodeIP:     nodeIP,
 		auditMode:  auditMode,
@@ -189,28 +192,15 @@ func (c *Controller) preWarm() error {
 	c.hostIdxmu.RLock()
 	defer c.hostIdxmu.RUnlock()
 
-	cache := make(map[string][]net.IP)
-
 	for host, podKeys := range c.hostIdx {
-		var addrs []net.IP
-		var err error
-		if cache[host] != nil {
-			addrs = cache[host]
-		} else {
-			c.log.Debugf("prewarm: lookup %q", host)
-			addrs, err = net.LookupIP(host)
-			if err != nil {
-				return err
-			}
-			cache[host] = addrs
-		}
+		addrs := c.dnsCache.LookupIP(host)
 		for _, addr := range addrs {
 			hostAddr := addr.To4()
 			if hostAddr == nil {
 				continue
 			}
 			for podKey := range podKeys {
-				err = c.tryAllowAddress(host, hostAddr, podKey)
+				err = c.tryAllowAddress([]string{host}, []net.IP{hostAddr}, podKey)
 				if err != nil {
 					c.log.Error(err)
 				}
@@ -239,8 +229,8 @@ func (c *Controller) loadBPF() error {
 		return fmt.Errorf("failed to load bpf progs: %+v", err)
 	}
 
-	c.log.Infof("map pod_config pinned: %t", c.podConfig.IsPinned())
-	c.log.Infof("map dns_config pinned: %t", c.dnsConfig.IsPinned())
+	c.log.Infof("map egress config pinned: %t", c.egressConfig.IsPinned())
+	c.log.Infof("map dns config pinned: %t", c.dnsConfig.IsPinned())
 
 	return err
 }
@@ -261,7 +251,7 @@ func (c *Controller) loadBPFMaps(pinPath string) error {
 		return fmt.Errorf("unable to load bpf: %s", err.Error())
 	}
 
-	c.podConfig = objs.bpfMaps.PodConfig
+	c.egressConfig = objs.bpfMaps.EgressConfig
 	c.dnsConfig = objs.bpfMaps.DnsConfig
 	c.metricsMap = objs.bpfMaps.Metrics
 	c.metricsBlockedAddr = objs.bpfMaps.MetricsBlockedAddr
@@ -298,7 +288,7 @@ func (c *Controller) loadBPFProgs(pinPath string) error {
 		return err
 	}
 	c.egressProg = objs.bpfPrograms.Egress
-	c.captureIngressProg = objs.bpfPrograms.CapturePackets
+	c.ingressProg = objs.bpfPrograms.CapturePackets
 	return nil
 }
 
@@ -307,7 +297,7 @@ func (c *Controller) attach() error {
 	c.ingressLink, err = link.AttachCgroup(link.CgroupOptions{
 		Path:    c.cgroupfs,
 		Attach:  ebpf.AttachCGroupInetIngress,
-		Program: c.captureIngressProg,
+		Program: c.ingressProg,
 	})
 	if err != nil {
 		return err
@@ -348,18 +338,19 @@ func (c *Controller) runDNSReader() {
 		var msg dns.Msg
 		err = msg.Unpack(event.Pkt[:event.Len])
 		if err != nil {
-			dnsParseError.WithLabelValues(strconv.FormatInt(int64(event.PodKey), 10)).Inc()
-			c.log.Error(err)
+			dnsParseError.WithLabelValues(strconv.FormatInt(int64(event.Key), 10)).Inc()
+			c.log.Errorf("unable to unpack dns: ev: len=%d key=%s %#v %s", event.Len, keyToIP(event.Key), event.Pkt, err)
 			continue
 		}
 
-		var hostname string
+		var hostnames []string
+		var ips []net.IP
 		for _, a := range msg.Answer {
-			// A CNAME record takes precedence over
-			// a plain A record that is sent along
+			// all hostnames are captured and passed to tryAllowAccess
+			// which will check whether or not this one is allowed
 			cname, ok := a.(*dns.CNAME)
 			if ok {
-				hostname = cname.Header().Name
+				hostnames = append(hostnames, cname.Header().Name)
 				continue
 			}
 			// for now, only support ipv4
@@ -368,52 +359,71 @@ func (c *Controller) runDNSReader() {
 				continue
 			}
 			v4 := arec.A.To4()
-			if hostname == "" {
-				hostname = arec.Header().Name
-			}
-			err = c.tryAllowAddress(hostname, v4, event.PodKey)
-			if err != nil {
-				c.log.Errorf("unable to update dns record state: %s", err.Error())
-			}
+			hostnames = append(hostnames, arec.Header().Name)
+			ips = append(ips, v4)
+		}
+		c.dnsCache.SetMany(hostnames, ips)
+		err = c.tryAllowAddress(hostnames, ips, event.Key)
+		if err != nil {
+			c.log.Errorf("unable to update dns record state: %s", err.Error())
 		}
 	}
 }
 
-func (c *Controller) tryAllowAddress(host string, addr net.IP, key uint32) error {
+func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) error {
+	if len(hosts) == 0 || len(ips) == 0 {
+		return nil
+	}
 	c.hostIdxmu.RLock()
 	defer c.hostIdxmu.RUnlock()
-	addrIdx, ok := c.hostIdx[host]
-	if !ok {
-		lookupForbiddenHostname.WithLabelValues(strconv.FormatUint(uint64(key), 10), host).Inc()
-		return fmt.Errorf("pod %d tried to access unallowed host: %s", key, host)
+
+	// see if a host matches
+	var found bool
+	for _, host := range hosts {
+
+		// check if host index contains the hostname that has been requested
+		addrIdx, ok := c.hostIdx[host]
+		if !ok {
+			continue
+		}
+		// check if this pod is supposed to access this hostname
+		_, ok = addrIdx[key]
+		if ok {
+			found = true
+		}
 	}
 
-	c.log.Debugf("got DNS A response: %s %s", host, addr.String())
-	resolvedAddr := binary.LittleEndian.Uint32(addr)
-	c.log.Infof("unblocking resolved addr: daddr=%d key=%d", resolvedAddr, key)
-
-	if _, ok := addrIdx[key]; !ok {
-		return fmt.Errorf("could not find source key=%d in host idx", key)
+	if !found {
+		for _, host := range hosts {
+			lookupForbiddenHostname.WithLabelValues(strconv.FormatUint(uint64(key), 10), host).Inc()
+		}
+		return fmt.Errorf("key=%s tried to access unallowed host: %s", keyToIP(key), hosts[0])
 	}
 
-	var innerID ebpf.MapID
-	err := c.podConfig.Lookup(key, &innerID)
-	if err != nil {
-		return fmt.Errorf("unable to lookup outer map: %s", err.Error())
+	for _, addr := range ips {
+		resolvedAddr := binary.LittleEndian.Uint32(addr)
+		c.log.Infof("unblocking resolved addr: daddr=%s key=%s", keyToIP(resolvedAddr), keyToIP(key))
+
+		var innerID ebpf.MapID
+		err := c.egressConfig.Lookup(key, &innerID)
+		if err != nil {
+			return fmt.Errorf("unable to lookup outer map: %s", err.Error())
+		}
+		innerMap, err := ebpf.NewMapFromID(innerID)
+		if err != nil {
+			return fmt.Errorf("unable to create inner map from fd: %s", err.Error())
+		}
+		err = innerMap.Put(&resolvedAddr, &ActionAllow)
+		if err != nil {
+			return fmt.Errorf("unable to put map: %s", err.Error())
+		}
 	}
-	innerMap, err := ebpf.NewMapFromID(innerID)
-	if err != nil {
-		return fmt.Errorf("unable to create inner map from fd: %s", err.Error())
-	}
-	err = innerMap.Put(&resolvedAddr, &ActionAllow)
-	if err != nil {
-		return fmt.Errorf("unable to put map: %s", err.Error())
-	}
+
 	return nil
 }
 
 func (c *Controller) updateConfig() error {
-	podIPMap, hostIdx, err := c.indicesFromEgressConfig()
+	addrIdx, hostIdx, err := c.indicesFromEgressConfig()
 	if err != nil {
 		return err
 	}
@@ -428,32 +438,23 @@ func (c *Controller) updateConfig() error {
 
 		// allow static IPs
 		for addr, setting := range staticAddrs {
-			c.log.Debugf("adding static key=%d addr=%d", key, addr)
 			err = m.Put(addr, setting)
 			if err != nil {
 				c.log.Errorf("unable to put static ip key=%d addr=%d: %s", key, addr, err)
 			}
 		}
-
-		// allow dns IPs
-		for _, addr := range c.allowedDNS {
-			err = m.Put(addr, ActionAllow)
-			if err != nil {
-				c.log.Errorf("unable to put dns addr key=%d addr=%d: %s", key, addr, err)
-			}
-		}
 	}
 
 	// set up outer map and store IPs
-	for key, staticAddrs := range podIPMap {
+	for key, staticAddrs := range addrIdx {
 		var innerID ebpf.MapID
-		err = c.podConfig.Lookup(key, &innerID)
+		err = c.egressConfig.Lookup(key, &innerID)
 		if err == nil {
 			updateStaticIPs(innerID, key, staticAddrs)
 			continue
 		}
 		if !errors.Is(err, ebpf.ErrKeyNotExist) {
-			c.log.Errorf("unable to lookup pod_config: %s", err.Error())
+			c.log.Errorf("unable to lookup egress config: %s", err.Error())
 			continue
 		}
 
@@ -465,16 +466,16 @@ func (c *Controller) updateConfig() error {
 		defer m.Close()
 		inf, err := m.Info()
 		if err != nil {
-			c.log.Errorf("unable to get pod_config map info: %s", err.Error())
+			c.log.Errorf("unable to get egress config map info: %s", err.Error())
 			continue
 		}
 		var ok bool
 		innerID, ok = inf.ID()
 		if !ok {
-			c.log.Errorf("unable to get pod_config map id: %s", err.Error())
+			c.log.Errorf("unable to get egress config map id: %s", err.Error())
 			continue
 		}
-		err = c.podConfig.Put(key, uint32(m.FD()))
+		err = c.egressConfig.Put(key, uint32(m.FD()))
 		if err != nil {
 			return err
 		}
@@ -482,7 +483,8 @@ func (c *Controller) updateConfig() error {
 	}
 
 	c.hostIdxmu.Lock()
-	c.cleanupState(c.hostIdx, hostIdx)
+	//c.cleanupState(c.hostIdx, hostIdx)
+	c.reconcileState(addrIdx)
 	c.hostIdx = hostIdx
 	c.hostIdxmu.Unlock()
 
@@ -490,12 +492,12 @@ func (c *Controller) updateConfig() error {
 }
 
 func (c *Controller) dumpMap() {
-	c.log.Debug("dumping pod_config")
-	it := c.podConfig.Iterate()
+	c.log.Debug("dumping egress config")
+	it := c.egressConfig.Iterate()
 	var key uint32
 	var innerID ebpf.MapID
 	for it.Next(&key, &innerID) {
-		c.log.Debugf("pod_config key=%d", key)
+		c.log.Debugf("egress config key=%s", keyToIP(key))
 		m, err := ebpf.NewMapFromID(innerID)
 		if err != nil {
 			c.log.Warn(err)
@@ -505,11 +507,21 @@ func (c *Controller) dumpMap() {
 		var innerKey uint32
 		var innerVal uint32
 		for iit.Next(&innerKey, &innerVal) {
-			c.log.Debugf("[%d] %d=>%d", key, innerKey, innerVal)
+			c.log.Debugf("[%s] %s=>%d", keyToIP(key), keyToIP(innerKey), innerVal)
 		}
 	}
 }
 
+func keyToIP(addr uint32) string {
+	var buf bytes.Buffer
+	_ = binary.Write(&buf, binary.LittleEndian, addr)
+	return net.IP(buf.Bytes()).To4().String()
+}
+
+// TODO: revisit and remove
+//
+//	it shouldn't be needed due to the reconcileState() implementation below
+//
 // cleans up stale data in BPF maps
 // case 1: pod has been removed from this node
 // case 2: hostname has been removed and must should be blocked
@@ -518,7 +530,7 @@ func (c *Controller) cleanupState(old, new map[string]map[uint32]struct{}) {
 
 	// case 1: cleanup pods that have been removed from this Node.
 	// slice of podKeys
-	podsToRemove := []uint32{}
+	keysToRemove := []uint32{}
 	// podKey => addrs to remove
 	hostsToRemove := map[uint32][]uint32{}
 
@@ -557,38 +569,81 @@ func (c *Controller) cleanupState(old, new map[string]map[uint32]struct{}) {
 		for oldPod := range oldPods {
 			_, ok := new[host][oldPod]
 			if !ok {
-				podsToRemove = append(podsToRemove, oldPod)
+				keysToRemove = append(keysToRemove, oldPod)
 			}
 		}
 	}
 
-	for _, podKey := range podsToRemove {
-		c.log.Debugf("deleting key: %d", podKey)
-		err := c.podConfig.Delete(podKey)
+	for _, key := range keysToRemove {
+		c.log.Debugf("deleting key from egressConfig: %s", keyToIP(key))
+		err := c.egressConfig.Delete(key)
 		if err != nil && err != ebpf.ErrKeyNotExist {
-			c.log.Warnf("could not delete key %d: %v", podKey, err)
+			c.log.Warnf("could not delete key %s: %v", keyToIP(key), err)
 		}
 	}
 
 	// case 2: delete upstream addresses from maps
 	//         to block outgoing connections
-	for podKey, addrs := range hostsToRemove {
+	for key, addrs := range hostsToRemove {
 		var innerID ebpf.MapID
-		err := c.podConfig.Lookup(podKey, &innerID)
+		err := c.egressConfig.Lookup(key, &innerID)
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			continue
+		}
 		if err != nil {
-			c.log.Warn("could not lookup pod key: %s", err)
+			c.log.Warn("could not lookup pod key=%s: %s", keyToIP(key), err)
 			continue
 		}
 		innerMap, err := ebpf.NewMapFromID(innerID)
 		if err != nil {
-			c.log.Warnf("unable to create map from inner id: %s", err)
+			c.log.Warnf("unable to create map from inner id=%d key=%s: %s", innerID, keyToIP(key), err)
 			continue
 		}
 		for _, addr := range addrs {
-			c.log.Debugf("deleting addr: %d", addr)
+			c.log.Debugf("deleting addr: %s", keyToIP(addr))
 			err = innerMap.Delete(addr)
-			if err != nil && err != ebpf.ErrKeyNotExist {
-				c.log.Warnf("unable to cleanup inner ip key=%d addr=%d err=%#v", podKey, addr, err)
+			if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+				c.log.Warnf("unable to cleanup inner ip key=%s addr=%s err=%s", keyToIP(key), keyToIP(addr), err.Error())
+				continue
+			}
+		}
+	}
+
+}
+
+// reconcileState sweeps through all key/value pairs in egressConfig
+// and removes orphaned pods
+func (c *Controller) reconcileState(addrIdx map[uint32]map[uint32]uint32) {
+	it := c.egressConfig.Iterate()
+	var key uint32
+	var innerID ebpf.MapID
+	for it.Next(&key, &innerID) {
+		// case: state exists in ebpf where it shouldn't
+		if _, ok := addrIdx[key]; !ok {
+			c.log.Debugf("reconciling egress, removing key=%s", keyToIP(key))
+			err := c.egressConfig.Delete(key)
+			if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+				c.log.Warnf("unable to reconcile pod key=%s %s", keyToIP(key), err.Error())
+			}
+			continue
+		}
+
+		m, err := ebpf.NewMapFromID(innerID)
+		if err != nil {
+			c.log.Warnf("unable to get map from inner id key=%s id=%d: %s", keyToIP(key), innerID, err.Error())
+			continue
+		}
+		iit := m.Iterate()
+		var destAddr uint32
+		var allowed uint32
+		for iit.Next(&destAddr, &allowed) {
+			// case: state exists in bpf map where it shouldn't
+			if _, ok := addrIdx[key][destAddr]; !ok {
+				c.log.Debugf("reconciling egress ips, removing key=%s ip=%s", keyToIP(key), keyToIP(destAddr))
+				err = m.Delete(destAddr)
+				if err != nil && errors.Is(err, ebpf.ErrKeyNotExist) {
+					c.log.Warnf("unable to delete key=%s dest=%s", keyToIP(key), keyToIP(destAddr))
+				}
 				continue
 			}
 		}
@@ -596,7 +651,7 @@ func (c *Controller) cleanupState(old, new map[string]map[uint32]struct{}) {
 }
 
 func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, map[string]map[uint32]struct{}, error) {
-	podIPMap := make(map[uint32]map[uint32]uint32)
+	addrIdx := make(map[uint32]map[uint32]uint32)
 	hostIdx := make(map[string]map[uint32]struct{})
 	var egressList v1alpha1.EgressList
 	err := c.client.List(c.ctx, &egressList)
@@ -604,24 +659,40 @@ func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, ma
 		return nil, nil, err
 	}
 	for _, egress := range egressList.Items {
+
+		// prepare allowed egress ips
 		hosts := []string{}
-		ips := map[uint32]uint32{}
+		egressIPs := map[uint32]uint32{}
 		for _, rule := range egress.Spec.Rules {
 			hosts = append(hosts, rule.Domains...)
+			// add static ips
 			for _, ip := range rule.IPs {
 				key := keyForAddr(net.ParseIP(ip))
-				ips[key] = ActionAllow
+				egressIPs[key] = ActionAllow
+			}
+			// add dynamic ips (without wildcards)
+			for _, domain := range rule.Domains {
+				addrs := c.dnsCache.Lookup(domain)
+				if addrs == nil {
+					continue
+				}
+				for addr := range addrs {
+					egressIPs[addr] = ActionAllow
+				}
 			}
 		}
 
-		var podList v1.PodList
+		// add allowed dns servers
+		for _, addr := range c.allowedDNS {
+			egressIPs[addr] = ActionAllow
+		}
 
-		// host firewall
+		// handle host firewall
 		if egress.Spec.PodSelector == nil {
 			// TODO: check if node matches selector
 			key := keyForAddr(net.ParseIP(c.nodeIP))
-			// add static ips to map
-			podIPMap[key] = ips
+			// add known ips to map
+			addrIdx[key] = egressIPs
 			for _, hostname := range hosts {
 				if hostIdx[hostname] == nil {
 					hostIdx[hostname] = make(map[uint32]struct{})
@@ -631,12 +702,16 @@ func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, ma
 			continue
 		}
 
+		var podList v1.PodList
 		err := c.client.List(c.ctx, &podList,
 			client.MatchingLabels(egress.Spec.PodSelector.MatchLabels),
 			&client.ListOptions{FieldSelector: fields.ParseSelectorOrDie("spec.nodeName=" + c.nodeName)})
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to list pods: %w", err)
 		}
+
+		// for every pod: prepare address and hostname indices
+		// so we can do a lookup by pod key
 		for _, pod := range podList.Items {
 			if pod.Status.PodIP == "" {
 				continue
@@ -647,9 +722,11 @@ func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, ma
 				continue
 			}
 			key := keyForAddr(podIP)
-			if podIPMap[key] == nil {
-				podIPMap[key] = make(map[uint32]uint32)
+			if addrIdx[key] == nil {
+				addrIdx[key] = make(map[uint32]uint32)
 			}
+			addrIdx[key] = egressIPs
+
 			for _, host := range hosts {
 				// we need to normalize this to a fqdn
 				hostname := host
@@ -660,24 +737,45 @@ func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, ma
 					hostIdx[hostname] = make(map[uint32]struct{})
 				}
 				hostIdx[hostname][key] = struct{}{}
+				mergeKeyMap(addrIdx[key], c.dnsCache.Lookup(hostname))
 			}
+			c.log.Debugf("got pod %s/%s=>%s => %#v", pod.Namespace, pod.Name, pod.Status.PodIP, addrIdx[key])
 		}
 	}
-	return podIPMap, hostIdx, nil
+	return addrIdx, hostIdx, nil
 }
 
 func keyForAddr(addr net.IP) uint32 {
 	return binary.LittleEndian.Uint32(addr.To4())
 }
 
+// copy keys from source into the dest map
+func mergeKeyMap(dest map[uint32]uint32, src map[uint32]struct{}) {
+	if src == nil {
+		return
+	}
+	for k := range src {
+		dest[k] = ActionAllow
+	}
+}
+
 func (c *Controller) Close() {
 	c.log.Debug("closing bpf resources")
 	c.egressProg.Close()
-	c.captureIngressProg.Close()
-
+	c.ingressProg.Close()
 	c.ingressLink.Close()
 	c.egressLink.Close()
 
-	c.podConfig.Close()
+	// uncomment to clean up map state
+	// c.eventsMap.Unpin()
+	// c.egressConfig.Unpin()
+	// c.dnsConfig.Unpin()
+	// c.metricsMap.Unpin()
+	// c.metricsBlockedAddr.Unpin()
+
+	c.eventsMap.Close()
+	c.egressConfig.Close()
 	c.dnsConfig.Close()
+	c.metricsMap.Close()
+	c.metricsBlockedAddr.Close()
 }
