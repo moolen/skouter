@@ -55,14 +55,21 @@ spec:
                 items:
                   properties:
                     cidrs:
+                      description: CIDRs allows you to allow-list whole CIDR ranges
+                        max 255 CIDRs are supported.
                       items:
                         type: string
                       type: array
                     domains:
+                      description: Domains let you allow-list individual hosts The
+                        IPs are resolved and allow-listed inflight.
                       items:
                         type: string
                       type: array
                     ips:
+                      description: IPs let you allow-list individual IPs IPs are stored
+                        in a map structure, hence there is no performance penalty
+                        of specifying lots of IPs.
                       items:
                         type: string
                       type: array

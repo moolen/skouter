@@ -1,11 +1,11 @@
 package cache
 
 import (
-	"bytes"
-	"encoding/binary"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/moolen/skouter/pkg/util"
 
 	cache "github.com/go-pkgz/expirable-cache/v2"
 	"github.com/sirupsen/logrus"
@@ -45,7 +45,7 @@ func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 	}
 	data = make(map[uint32]struct{})
 	for _, addr := range addrs {
-		data[toUint(addr)] = struct{}{}
+		data[util.IPToUint(addr)] = struct{}{}
 	}
 
 	c.hostnameData.Set(hostname, data, DefaultTTL)
@@ -55,7 +55,7 @@ func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 func (c *Cache) SetMany(hostnames []string, addrs []net.IP) {
 	data := make(map[uint32]struct{})
 	for _, addr := range addrs {
-		data[toUint(addr)] = struct{}{}
+		data[util.IPToUint(addr)] = struct{}{}
 	}
 
 	for _, hostname := range hostnames {
@@ -71,7 +71,7 @@ func (c *Cache) LookupIP(hostname string) []net.IP {
 	}
 	var addrs []net.IP
 	for nAddr := range data {
-		addr := toIP(nAddr)
+		addr := util.ToIP(nAddr)
 		if addr == nil {
 			continue
 		}
@@ -85,21 +85,4 @@ func normalizeHostname(hostname string) string {
 		hostname += "."
 	}
 	return hostname
-}
-
-func toUint(addr net.IP) uint32 {
-	addr = addr.To4()
-	if addr == nil {
-		return 0
-	}
-	return binary.LittleEndian.Uint32(addr)
-}
-
-func toIP(addr uint32) net.IP {
-	var buf bytes.Buffer
-	err := binary.Write(&buf, binary.LittleEndian, addr)
-	if err != nil {
-		return nil
-	}
-	return net.IP(buf.Bytes())
 }

@@ -28,7 +28,7 @@ docker.build: build
 	docker build -t $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG) .
 
 run: build
-	sudo ./bin/skouter --kubeconfig ~/.kube/config --loglevel debug --node-name minikube --cgroupfs /sys/fs/cgroup
+	sudo -E ./bin/skouter --kubeconfig ~/.kube/config --loglevel debug --node-name minikube --cgroupfs /sys/fs/cgroup
 
 .PHONY: example
 example: docker.build

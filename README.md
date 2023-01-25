@@ -57,7 +57,7 @@ Others:
 - [ ] support IPv6
 - [x] block host traffic
 - [x] support plain IPs
-- [ ] support IP cidr ranges
+- [x] support IP cidr ranges
 - [x] audit mode (allow egress by default but log/store traffic patterns)
 - [x] clean up deleted IPs
 - [x] ~~lift limitation of 256 adresses per node~~

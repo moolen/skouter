@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	testExampleCom  = "wget -T 3 -O /dev/null example.com"
-	testNYTimes     = "wget -T 3 -O /dev/null nytimes.com"
-	testHTTPBin     = "wget -T 3 -O /dev/null httpbin.org"
-	testK8sRegistry = "wget -T 3 -O /dev/null registry.k8s.io"
+	testExampleCom  = "wget --no-check-certificate -T 3 -O /dev/null example.com"
+	testNYTimes     = "wget --no-check-certificate -T 3 -O /dev/null nytimes.com"
+	testHTTPBin     = "wget --no-check-certificate -T 3 -O /dev/null httpbin.org"
+	testK8sRegistry = "wget --no-check-certificate -T 3 -O /dev/null registry.k8s.io"
 )
 
 var (

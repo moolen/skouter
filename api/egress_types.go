@@ -42,9 +42,18 @@ type Selector struct {
 }
 
 type EgressRule struct {
+	// Domains let you allow-list individual hosts
+	// The IPs are resolved and allow-listed inflight.
 	Domains []string `json:"domains,omitempty"`
-	IPs     []string `json:"ips,omitempty"`
-	CIDRs   []string `json:"cidrs,omitempty"`
+
+	// IPs let you allow-list individual IPs
+	// IPs are stored in a map structure, hence there is no
+	// performance penalty of specifying lots of IPs.
+	IPs []string `json:"ips,omitempty"`
+
+	// CIDRs allows you to allow-list whole CIDR ranges
+	// max 255 CIDRs are supported.
+	CIDRs []string `json:"cidrs,omitempty"`
 }
 
 type EgressStatus struct {

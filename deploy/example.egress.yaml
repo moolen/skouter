@@ -10,6 +10,10 @@ spec:
     - domains:
       - example.com
       - httpbin.org
+    - cidrs:
+      - 127.0.0.1/8
+      - 1.2.3.4/24
+      - 140.82.121.3/24 # github.com
 # ---
 # apiVersion: egress.skouter/v1alpha1
 # kind: Egress

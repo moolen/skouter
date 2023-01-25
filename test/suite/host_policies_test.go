@@ -55,7 +55,7 @@ var _ = Describe("host egress policies", Label("allow"), func() {
 		}
 	})
 
-	FIt("allow host egress with match, deny egress without match", func() {
+	It("allow host egress with match, deny egress without match", func() {
 		Eventually(func() error {
 			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
 			return err

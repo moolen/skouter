@@ -7,6 +7,7 @@
 
 #define MAX_IP_ENTRIES 512
 #define MAX_EGRESS_IPS 4096
+#define MAX_EGRESS_CIDRS 256
 #define MAX_LABELS 12
 #define MAX_ANS_COUNT 1
 #define MAX_ANS_ADDR 4
@@ -49,6 +50,35 @@ struct {
   __uint(pinning, LIBBPF_PIN_BY_NAME);
   __array(values, struct pod_egress_config);
 } egress_config SEC(".maps");
+
+// value stored in egress_cidr_config below
+// it contains a ip address as well as net mask
+struct cidr_config_val {
+  __u32 addr;
+  __u32 mask;
+};
+
+// Force emitting struct cidr_config_val into the ELF.
+const struct cidr_config_val *unused2 __attribute__((unused));
+
+// nested map used to block egress traffic based on CIDR ranges
+// this is a fixed size array.
+struct pod_egress_cidr_config {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_EGRESS_CIDRS);
+  __type(key, __u32);   // 0=number of cidrs, 1..256 are CIDRs
+  __type(value, __u64); // {IPv4 addr, subnet mask}
+};
+
+// nested outer map to lookup pod ip (source) => inner map (destination ip ->
+// allowed setting)
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
+  __uint(max_entries, MAX_IP_ENTRIES);
+  __type(key, __u32); // pod IPv4 address
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+  __array(values, struct pod_egress_cidr_config);
+} egress_cidr_config SEC(".maps");
 
 // map to store the upstream dns server address
 // this is used to verify the dst address (egress) or
@@ -131,8 +161,8 @@ __u64 get_dns_key(struct __sk_buff *skb, __u8 check_type) {
     return -1;
   }
 
-  // The dns key is stored as a triplet containing ip source/dest address, udp source/dest port and dns tx id
-  // key layout:
+  // The dns key is stored as a triplet containing ip source/dest address, udp
+  // source/dest port and dns tx id key layout:
   // {32bit ip address} {16bit port} {16bit dns tx id}
   __u64 out = 0;
   if (check_type == DNS_CHECK_SOURCE) {
@@ -244,6 +274,79 @@ int capture_packets(struct __sk_buff *skb) {
   return 1;
 }
 
+// returns 1 if allowed
+// returns 0 if blocked
+int egress_ip_allowed(__u32 key, __u32 daddr) {
+  __u32 *inner_map = bpf_map_lookup_elem(&egress_config, &key);
+  if (inner_map == NULL) {
+    // not subject to policies
+    return TC_ALLOW;
+  }
+  __u8 *allowed = bpf_map_lookup_elem(inner_map, &daddr);
+  if (allowed == NULL) {
+    metrics_inc(METRICS_EGRESS_BLOCKED);
+    bpf_printk("no value for ip %lu in inner map", daddr);
+
+    if (is_audit_mode() == 1) {
+      metrics_inc_blocked_addr(daddr);
+      return TC_ALLOW;
+    }
+    return TC_BLOCK;
+  }
+  // block
+  if (*allowed == TC_BLOCK) {
+    metrics_inc(METRICS_EGRESS_BLOCKED);
+    if (is_audit_mode() == 1) {
+      metrics_inc_blocked_addr(daddr);
+      return TC_ALLOW;
+    }
+    return TC_BLOCK;
+  }
+  // allow
+  else if (*allowed == TC_ALLOW) {
+    metrics_inc(METRICS_EGRESS_ALLOWED);
+    return TC_ALLOW;
+  }
+  return TC_ALLOW;
+}
+
+// returns 1 if allowed
+// returns 0 if blocked
+int egress_cidr_allowed(__u32 key, __u32 daddr) {
+  __u32 *inner_map = bpf_map_lookup_elem(&egress_cidr_config, &key);
+  if (inner_map == NULL) {
+    // not subject to policies
+    return TC_ALLOW;
+  }
+
+  // idx 0 stores the length of CIDRs for this particular array
+  // It is stored to prevent unneeded iterations and correct handling
+  // of the null value 0.0.0.0/0
+  __u32 zero = 0;
+  __u64 *len = bpf_map_lookup_elem(inner_map, &zero);
+  if (len == NULL) {
+    return TC_ALLOW;
+  }
+
+  for (int i = 1; i < MAX_EGRESS_CIDRS; i++) {
+    if (i > *len) {
+      return TC_BLOCK;
+    }
+    __u32 j = i;
+    struct cidr_config_val *cidr = bpf_map_lookup_elem(inner_map, &j);
+    if (cidr == NULL) {
+      return TC_ALLOW;
+    }
+    if (cidr == NULL) {
+      return TC_ALLOW;
+    }
+    if ((cidr->addr & cidr->mask) == (daddr & cidr->mask)) {
+      return TC_ALLOW;
+    }
+  }
+  return TC_BLOCK;
+}
+
 SEC("cgroup_skb/egress")
 int egress(struct __sk_buff *skb) {
   void *data = (void *)(long)skb->data;
@@ -251,7 +354,7 @@ int egress(struct __sk_buff *skb) {
 
   struct iphdr *ip = (data);
   if (data + sizeof(struct iphdr) + sizeof(struct udphdr) > data_end) {
-    return 1;
+    return TC_ALLOW;
   }
 
   __u32 key = ip->saddr;
@@ -259,7 +362,7 @@ int egress(struct __sk_buff *skb) {
   // check if pod is subject to egress policies
   __u32 *inner_map = bpf_map_lookup_elem(&egress_config, &key);
   if (inner_map == NULL) {
-    return 1;
+    return TC_ALLOW;
   }
 
   // pass traffic if destination is upstream dns server
@@ -267,37 +370,18 @@ int egress(struct __sk_buff *skb) {
   if (ret != NULL && *ret == 1) {
     store_dns_id(key, skb);
     metrics_inc(METRICS_EGRESS_DNS);
-    return 1;
+    return TC_ALLOW;
   }
 
-  bpf_printk("pod is subject to egress filter key=%d saddr=%d daddr=%d", key, ip->saddr, ip->daddr);
+  bpf_printk("pod is subject to egress filter key=%d saddr=%d daddr=%d", key,
+             ip->saddr, ip->daddr);
 
-  __u8 *allowed = bpf_map_lookup_elem(inner_map, &ip->daddr);
-  if (allowed == NULL) {
-    metrics_inc(METRICS_EGRESS_BLOCKED);
-    bpf_printk("no value for ip %lu in inner map, blocking", ip->daddr);
+  if (egress_ip_allowed(key, ip->daddr) == TC_BLOCK &&
+      egress_cidr_allowed(key, ip->daddr) == TC_BLOCK) {
+    return TC_BLOCK;
+  }
 
-    if (is_audit_mode() == 1) {
-      metrics_inc_blocked_addr(ip->daddr);
-      return 1;
-    }
-    return 0;
-  }
-  // block
-  if (*allowed == TC_BLOCK) {
-    metrics_inc(METRICS_EGRESS_BLOCKED);
-    if (is_audit_mode() == 1) {
-      metrics_inc_blocked_addr(ip->daddr);
-      return 1;
-    }
-    return 0;
-  }
-  // allow
-  else if (*allowed == TC_ALLOW) {
-    metrics_inc(METRICS_EGRESS_ALLOWED);
-    return 1;
-  }
-  return 1;
+  return TC_ALLOW;
 }
 
 char __license[] SEC("license") = "Dual MIT/GPL";
