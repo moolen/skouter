@@ -18,6 +18,7 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/jackpal/gateway"
 	"github.com/miekg/dns"
 	v1alpha1 "github.com/moolen/skouter/api"
 	cache "github.com/moolen/skouter/pkg/dns_cache"
@@ -41,6 +42,8 @@ type Controller struct {
 	updateChan chan struct{}
 	cgroupfs   string
 	bpffs      string
+	gwAddr     uint32
+	gwIfAddr   uint32
 	allowedDNS []uint32
 	dnsCache   *cache.Cache
 
@@ -103,6 +106,19 @@ func New(
 		dnsAddrs = append(dnsAddrs, binary.LittleEndian.Uint32(dnsIP.To4()))
 	}
 
+	// TODO: make that configurable/extensible through CLI
+	//       a user may need to specify an IP address from a different interface
+	gwAddr, err := gateway.DiscoverGateway()
+	if err != nil {
+		return nil, err
+	}
+	gwIfAddr, err := gateway.DiscoverInterface()
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("discovered gateway=%s if=%s", gwAddr.String(), gwIfAddr.String())
+
 	ctrl := &Controller{
 		ctx:        ctx,
 		log:        log,
@@ -111,6 +127,8 @@ func New(
 		cgroupfs:   cgroupfs,
 		bpffs:      bpffs,
 		allowedDNS: dnsAddrs,
+		gwAddr:     binary.LittleEndian.Uint32(gwAddr.To4()),
+		gwIfAddr:   binary.LittleEndian.Uint32(gwIfAddr.To4()),
 		dnsCache:   cache.New(log),
 		nodeName:   nodeName,
 		nodeIP:     nodeIP,
@@ -119,7 +137,7 @@ func New(
 		hostIdx:    make(map[string]map[uint32]struct{}),
 	}
 
-	err := ctrl.loadBPF()
+	err = ctrl.loadBPF()
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +441,7 @@ func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) e
 }
 
 func (c *Controller) updateConfig() error {
-	addrIdx, hostIdx, err := c.indicesFromEgressConfig()
+	addrIdx, hostIdx, err := c.generateIndices()
 	if err != nil {
 		return err
 	}
@@ -650,7 +668,7 @@ func (c *Controller) reconcileState(addrIdx map[uint32]map[uint32]uint32) {
 	}
 }
 
-func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, map[string]map[uint32]struct{}, error) {
+func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[string]map[uint32]struct{}, error) {
 	addrIdx := make(map[uint32]map[uint32]uint32)
 	hostIdx := make(map[string]map[uint32]struct{})
 	var egressList v1alpha1.EgressList
@@ -687,10 +705,22 @@ func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, ma
 			egressIPs[addr] = ActionAllow
 		}
 
+		// add localhost
+		// TODO: add localhost CIDR 127.0.0.1/8
+		// 127.0.0.11 is used for DNS lookups on the host (using minikube)
+		egressIPs[keyForAddr(net.ParseIP("127.0.0.1"))] = ActionAllow
+		egressIPs[keyForAddr(net.ParseIP("127.0.0.11"))] = ActionAllow
+
 		// handle host firewall
 		if egress.Spec.PodSelector == nil {
 			// TODO: check if node matches selector
 			key := keyForAddr(net.ParseIP(c.nodeIP))
+
+			// host firewall needs to be allowed to send traffic to
+			// the default gateway and to localhost
+			egressIPs[c.gwAddr] = ActionAllow
+			egressIPs[c.gwIfAddr] = ActionAllow
+
 			// add known ips to map
 			addrIdx[key] = egressIPs
 			for _, hostname := range hosts {
@@ -713,7 +743,9 @@ func (c *Controller) indicesFromEgressConfig() (map[uint32]map[uint32]uint32, ma
 		// for every pod: prepare address and hostname indices
 		// so we can do a lookup by pod key
 		for _, pod := range podList.Items {
-			if pod.Status.PodIP == "" {
+			// we do not want to apply policies for pods
+			// that are on the host network.
+			if pod.Status.PodIP == "" || pod.Spec.HostNetwork {
 				continue
 			}
 			podIP := net.ParseIP(pod.Status.PodIP)

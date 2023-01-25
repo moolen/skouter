@@ -23,6 +23,10 @@ const (
 	testK8sRegistry = "wget -T 3 -O /dev/null registry.k8s.io"
 )
 
+var (
+	matchTestWorkloads = map[string]string{"e2e": "test"}
+)
+
 var _ = Describe("pod egress policies", Label("allow"), func() {
 
 	var uid string
@@ -36,7 +40,7 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 		err = k8s.Create(context.Background(), testPod(uid, defaultLabels(uid), false))
 		Expect(err).ToNot(HaveOccurred())
 		_, err = WaitForPodsRunning(clientSet, 1, "default", metav1.ListOptions{
-			LabelSelector: "test=" + uid,
+			LabelSelector: "name=" + uid,
 		})
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -46,8 +50,21 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 		if CurrentGinkgoTestDescription().Failed && debugMode {
 			return
 		}
-		k8s.DeleteAllOf(context.Background(), &v1.Pod{}, crclient.MatchingLabels(defaultLabels(uid)))
-		k8s.DeleteAllOf(context.Background(), &v1alpha1.Egress{}, crclient.MatchingLabels(defaultLabels(uid)))
+		var podList v1.PodList
+		err := k8s.List(context.Background(), &podList, crclient.MatchingLabels(matchTestWorkloads))
+		Expect(err).ToNot(HaveOccurred())
+		for _, po := range podList.Items {
+			err = k8s.Delete(context.Background(), &po, crclient.GracePeriodSeconds(0))
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		var egressList v1alpha1.EgressList
+		err = k8s.List(context.Background(), &egressList, crclient.MatchingLabels(matchTestWorkloads))
+		Expect(err).ToNot(HaveOccurred())
+		for _, eg := range egressList.Items {
+			err = k8s.Delete(context.Background(), &eg)
+			Expect(err).ToNot(HaveOccurred())
+		}
 	})
 
 	It("allow pod egress with match, deny egress without match", func() {
@@ -108,19 +125,15 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 
 	It("pods with host networking must not be affected by egress policy with podSelector", func() {
 		name := uid + "-hostnet"
-		err := k8s.Create(context.Background(), testPod(name, map[string]string{
-			"e2e":     "test",
-			"hostnet": uid,
-			"test":    uid,
-		}, true))
+		err := k8s.Create(context.Background(), testPod(name, defaultLabels(name), true))
 		Expect(err).ToNot(HaveOccurred())
 		_, err = WaitForPodsRunning(clientSet, 1, "default", metav1.ListOptions{
-			LabelSelector: "hostnet=" + uid,
+			LabelSelector: "name=" + name,
 		})
 		Expect(err).ToNot(HaveOccurred())
 
 		for _, tc := range []string{testExampleCom, testNYTimes, testHTTPBin, testK8sRegistry} {
-			_, err = ExecCmd(clientSet, restConfig, uid, "default", tc)
+			_, err = ExecCmd(clientSet, restConfig, name, "default", tc)
 			Expect(err).ToNot(HaveOccurred())
 		}
 	})
@@ -150,11 +163,14 @@ func egressPolicyWithDomains(uid string, podLabels map[string]string, domains []
 	}
 }
 
-func defaultLabels(uid string) map[string]string {
-	return map[string]string{
-		"e2e":  "test",
-		"test": uid,
+func defaultLabels(name string) map[string]string {
+	defaults := map[string]string{
+		"name": name,
 	}
+	for k, v := range matchTestWorkloads {
+		defaults[k] = v
+	}
+	return defaults
 }
 
 func testPod(name string, labels map[string]string, hostNetwork bool) *v1.Pod {

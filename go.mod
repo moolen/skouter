@@ -6,6 +6,7 @@ require (
 	github.com/cilium/ebpf v0.10.1-0.20230117140251-63a3caefca29
 	github.com/go-pkgz/expirable-cache/v2 v2.0.0
 	github.com/google/uuid v1.1.2
+	github.com/jackpal/gateway v1.0.7
 	github.com/miekg/dns v1.1.50
 	github.com/onsi/ginkgo/v2 v2.7.0
 	github.com/onsi/gomega v1.25.0

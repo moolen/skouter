@@ -167,7 +167,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&auditMode, "audit-mode", false, "enable audit mode - no actual blocking will be done. This must be specified on start-up and can not be changed during runtime. Metrics `audit_blocked_addr` will contain the IPs egressing")
 	rootCmd.Flags().StringVar(&cgroupfs, "cgroupfs", "/sys/fs/cgroup/kubepods.slice", "")
 	rootCmd.Flags().StringVar(&bpffs, "bpffs", "/sys/fs/bpf", "")
-	rootCmd.Flags().StringArrayVar(&allowedDNS, "allowed-dns", []string{"10.96.0.10", "127.0.0.1", "127.0.0.11", "192.168.49.1"}, "allowed dns server address")
+	rootCmd.Flags().StringArrayVar(&allowedDNS, "allowed-dns", []string{"10.96.0.10"}, "allowed dns server address")
 	rootCmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig to use (out-of-cluster config)")
 }
 
