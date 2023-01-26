@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"sync"
 	"time"
 
 	cache "github.com/go-pkgz/expirable-cache/v2"
@@ -9,6 +10,10 @@ import (
 
 type Cache struct {
 	log logrus.FieldLogger
+
+	// we need to synchronize both caches
+	// otherwise we may end up in an inconsistent state
+	mu *sync.Mutex
 
 	// Stores a hierarchy of hostnames and maps them to an address
 	//
@@ -29,6 +34,7 @@ const (
 func New(log logrus.FieldLogger) *Cache {
 	return &Cache{
 		log: log,
+		mu:  &sync.Mutex{},
 		wildcardData: cache.NewCache[string, map[string]map[uint32]uint32]().
 			WithMaxKeys(MaxKeys).
 			WithLRU(),

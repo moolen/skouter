@@ -11,6 +11,8 @@ import (
 
 // Store the host
 func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var data map[string]map[uint32]uint32
 	var ok bool
 	data, ok = c.wildcardData.Get(wildcard)
@@ -53,8 +55,9 @@ func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
 }
 
 func (c *Cache) DumpMap() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, k := range c.wildcardData.Keys() {
-
 		data, _ := c.wildcardData.Get(k)
 		datas, _ := json.Marshal(data)
 		fmt.Printf("data[%s] => %s\n", k, string(datas))
@@ -69,6 +72,8 @@ func (c *Cache) DumpMap() {
 
 // Store the host
 func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	desiredWildcards := make(map[string]string)
 	for _, rule := range ruleIdx {
 		for wildcard := range rule {
@@ -76,6 +81,7 @@ func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) err
 		}
 	}
 
+	fmt.Printf("reconciling wc idx: %#v | %#v\n", c.wildcardData.Keys(), c.wildcardIdx.Keys())
 	for _, wildcard := range c.wildcardData.Keys() {
 		// case: rule was removed
 		if _, ok := desiredWildcards[wildcard]; !ok {
@@ -83,17 +89,21 @@ func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) err
 			if !ok {
 				continue
 			}
+			fmt.Printf("stale date: %#v\n", staleData)
 			// delete addr from index
 			for _, addrMap := range staleData {
 				for addr := range addrMap {
+					fmt.Printf("checking idx: %#v\n", addr)
 					idxData, ok := c.wildcardIdx.Get(addr)
 					if !ok {
 						continue
 					}
 					delete(idxData, wildcard)
 					if len(idxData) == 0 {
+						fmt.Printf("deleting idx key: %#v\n", addr)
 						c.wildcardIdx.Invalidate(addr)
 					} else {
+						fmt.Printf("updating idx data: %#v\n", idxData)
 						c.wildcardIdx.Set(addr, idxData, 0)
 					}
 				}

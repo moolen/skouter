@@ -201,7 +201,15 @@ func (c *Controller) Run() error {
 	}
 
 	go c.runDNSReader()
-	tt := time.NewTicker(time.Second * 15)
+
+	// reconcile the state every 5s to ensure that wildcard cache
+	// converges quickly.
+	// The problem is writes are happening through the ringbuf
+	// while egress/pod reconciliation is happening in a different
+	// goroutine.
+	// Worst case: if the controller restarts the all wildcard cache data is lost
+	// and traffic will be delayed again for ~1s (DNS roundtrip + tcp retry).
+	tt := time.NewTicker(time.Second * 5)
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -213,6 +221,7 @@ func (c *Controller) Run() error {
 			}
 		case <-tt.C:
 			c.dumpMap()
+			c.updateConfig()
 		}
 	}
 }

@@ -22,8 +22,11 @@ const (
 	testGitHub      = "wget --no-check-certificate -T 3 -O /dev/null github.com"
 	testHTTPBin     = "wget --no-check-certificate -T 3 -O /dev/null httpbin.org"
 	testK8sRegistry = "wget --no-check-certificate -T 3 -O /dev/null registry.k8s.io"
+	testWikiDE      = "wget --no-check-certificate -T 3 -O /dev/null de.wikipedia.org"
+	testWikiEN      = "wget --no-check-certificate -T 3 -O /dev/null en.wikipedia.org"
 
 	githubCIDR = "140.82.121.3/24"
+	wikiRegexp = ".*.wikipedia.org"
 )
 
 var (
@@ -36,9 +39,8 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 	BeforeEach(func() {
 		defer GinkgoRecover()
 		uid = uuid.New().String()
-		err := k8s.Create(context.Background(), podEgressPolicy(uid, defaultLabels(uid), []string{"example.com"}, nil))
+		err := k8s.Create(context.Background(), podEgressPolicy(uid, defaultLabels(uid), []string{"example.com"}, nil, nil))
 		Expect(err).ToNot(HaveOccurred())
-		By("creating pod under test")
 
 		err = k8s.Create(context.Background(), testPod(uid, defaultLabels(uid), false))
 		Expect(err).ToNot(HaveOccurred())
@@ -97,6 +99,7 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 					"www.nytimes.com",
 				},
 				nil,
+				nil,
 			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -118,6 +121,7 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 				uid,
 				defaultLabels(uid),
 				[]string{"nytimes.com", "www.nytimes.com"},
+				nil,
 				nil,
 			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
 		Expect(err).ToNot(HaveOccurred())
@@ -146,6 +150,7 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 				[]string{
 					githubCIDR,
 				},
+				nil,
 			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -153,6 +158,51 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 			_, err = ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
 			return err
 		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+	})
+
+	It("allow wildcard egress after crd has been updated", func() {
+		Eventually(func() error {
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			return err
+		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+
+		Eventually(func() error {
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testWikiDE)
+			return err
+		}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+
+		err := k8s.Patch(context.Background(),
+			podEgressPolicy(
+				uid, defaultLabels(uid),
+				nil,
+				nil,
+				[]string{wikiRegexp},
+			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
+		Expect(err).ToNot(HaveOccurred())
+
+		for _, test := range []string{testWikiDE, testWikiEN} {
+			Eventually(func() error {
+				_, err = ExecCmd(clientSet, restConfig, uid, "default", test)
+				return err
+			}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}
+
+		// remove rule again
+		err = k8s.Patch(context.Background(),
+			podEgressPolicy(
+				uid, defaultLabels(uid),
+				nil,
+				nil,
+				nil,
+			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
+		Expect(err).ToNot(HaveOccurred())
+
+		for _, test := range []string{testWikiDE, testWikiEN} {
+			Eventually(func() error {
+				_, err = ExecCmd(clientSet, restConfig, uid, "default", test)
+				return err
+			}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+		}
 	})
 
 	It("pods with host networking must not be affected by egress policy with podSelector", func() {
@@ -171,7 +221,7 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 	})
 })
 
-func podEgressPolicy(uid string, podLabels map[string]string, domains []string, cidrs []string) *v1alpha1.Egress {
+func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, wildcards []string) *v1alpha1.Egress {
 	return &v1alpha1.Egress{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       v1alpha1.EgressKind,
@@ -188,8 +238,9 @@ func podEgressPolicy(uid string, podLabels map[string]string, domains []string, 
 			},
 			Rules: []v1alpha1.EgressRule{
 				{
-					Domains: domains,
-					CIDRs:   cidrs,
+					Domains:   domains,
+					CIDRs:     cidrs,
+					Wildcards: wildcards,
 				},
 			},
 		},
