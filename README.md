@@ -4,21 +4,21 @@ cloud-native egress proxy.
 
 ---
 
+## Overview
 
-## Iteration 1: parse DNS response in userspace
 ![overview](overview.png)
-
 
 ## Rationale
 
 This is a counter-draft to the traditional centralized egress firewall approach.
 
 Requirements:
-* provide a **DNS-based firewall** to allow/deny egress traffic
-* **no change of existing applications needed**: an app must not rely on `HTTP_PROXY` env variables or iptables traffic redirection
-* **no central infrastructure** for egress filtering: No single point of failure. Eliminate complexity introduced by HA architecture like leader election, state replication, snapshots for DR, VRRP.
-* is capable of filtering **host** egress traffic
-* supports audit mode that allows to discover traffic patterns before blocking them
+
+- provide a **DNS-based firewall** to allow/deny egress traffic
+- **no change of existing applications needed**: an app must not rely on `HTTP_PROXY` env variables or iptables traffic redirection
+- **no central infrastructure** for egress filtering: No single point of failure. Eliminate complexity introduced by HA architecture like leader election, state replication, snapshots for DR, VRRP.
+- is capable of filtering **host** egress traffic
+- supports audit mode that allows to discover traffic patterns before blocking them
 
 It runs on a cgroup2 skb hook. Essentially, all Kubernetes traffic from pods is subject to firewall policies (or all node traffic if attached to the root cgroup).
 It parses the DNS response packets from the trusted DNS server and allows/blocks traffic egressing from a pod.
@@ -26,11 +26,12 @@ It parses the DNS response packets from the trusted DNS server and allows/blocks
 It was built because Kubernetes network policies do not provide the semantics for this.
 
 There are other implemenatation approaches for egress filtering:
-* L7: HTTP Proxy
-* L7|L4: HTTP(S) CONNECT
-* L5+: TLS SNI
-* L3|L4: IP CIDRs + ports
-* K8s Operator like https://github.com/giantswarm/dns-network-policy-operator
+
+- L7: HTTP Proxy
+- L7|L4: HTTP(S) CONNECT
+- L5+: TLS SNI
+- L3|L4: IP CIDRs + ports
+- K8s Operator like https://github.com/giantswarm/dns-network-policy-operator
 
 ### Limitations and edge cases
 
@@ -43,7 +44,8 @@ The kernel retries the initial SYN after 1s.
 There are [some papers](https://www.nlnetlabs.nl/downloads/publications/DNS-augmentation-with-eBPF.pdf) and [talks](https://www.nanog.org/news-stories/nanog-tv/nanog-81-webcast/xdperiments-tinkering-with-dns-and-xdp/) that touch that topic including source code that may help anyone that picks this up.
 
 Others:
-* CIDR range per node is /24
+
+- CIDR range per node is /24
 
 ## Further improvements
 
@@ -80,6 +82,14 @@ spec:
     - domains:
       - example.com
       - httpbin.org
+    - ips:
+      - 1.2.3.4
+      - 5.7.3.1
+    - cidrs:
+      - 127.0.0.1/8
+      - 10.0.10.0/24
+    wildcards:
+      - .*\.wikipedia\.org # de|en|...
 ```
 
 We can run a pod that matches the `podSelector` from above egress config
