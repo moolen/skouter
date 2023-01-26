@@ -218,7 +218,7 @@ func testPod(name string, labels map[string]string, hostNetwork bool) *v1.Pod {
 			Containers: []v1.Container{
 				{
 					Name:            "test",
-					Image:           "alpine",
+					Image:           "alpine:3.16", // 3.16 needed for older openssl version to support SSL DPI
 					ImagePullPolicy: v1.PullIfNotPresent,
 					Command:         []string{"/bin/sleep", "3600"},
 				},
