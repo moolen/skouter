@@ -22,7 +22,7 @@ var _ = Describe("host egress policies", Label("allow"), func() {
 	BeforeEach(func() {
 		defer GinkgoRecover()
 		uid = uuid.New().String()
-		err := k8s.Create(context.Background(), hostEgressPolicyWithDomains(uid, defaultLabels(uid), []string{"example.com"}))
+		err := k8s.Create(context.Background(), hostEgressPolicy(uid, defaultLabels(uid), []string{"example.com"}, nil))
 		Expect(err).ToNot(HaveOccurred())
 		By("creating pod under test")
 		err = k8s.Create(context.Background(), testPod(uid, defaultLabels(uid), true))
@@ -68,9 +68,31 @@ var _ = Describe("host egress policies", Label("allow"), func() {
 			}).WithTimeout(time.Second * 30).Should(HaveOccurred())
 		}
 	})
+
+	It("allow host egress with CIDR", func() {
+		Eventually(func() error {
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
+			return err
+		}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+
+		err := k8s.Patch(context.Background(),
+			hostEgressPolicy(
+				uid, defaultLabels(uid),
+				nil,
+				[]string{
+					githubCIDR,
+				},
+			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
+		Expect(err).ToNot(HaveOccurred())
+
+		Eventually(func() error {
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
+			return err
+		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+	})
 })
 
-func hostEgressPolicyWithDomains(uid string, nodeLabels map[string]string, domains []string) *v1alpha1.Egress {
+func hostEgressPolicy(uid string, nodeLabels map[string]string, domains []string, cidrs []string) *v1alpha1.Egress {
 	return &v1alpha1.Egress{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       v1alpha1.EgressKind,
@@ -87,6 +109,7 @@ func hostEgressPolicyWithDomains(uid string, nodeLabels map[string]string, domai
 			},
 			Rules: []v1alpha1.EgressRule{
 				{
+					CIDRs:   cidrs,
 					Domains: domains,
 				},
 				{
