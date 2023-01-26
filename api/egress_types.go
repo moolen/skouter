@@ -46,6 +46,8 @@ type EgressRule struct {
 	// The IPs are resolved and allow-listed inflight.
 	Domains []string `json:"domains,omitempty"`
 
+	Wildcards []string `json:"wildcards,omitempty"`
+
 	// IPs let you allow-list individual IPs
 	// IPs are stored in a map structure, hence there is no
 	// performance penalty of specifying lots of IPs.

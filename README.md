@@ -53,7 +53,7 @@ Others:
 - [ ] support DNS over TCP
 - [x] support CNAME records
 - [x] packet-level metrics
-- [ ] regex hostnames
+- [x] regex hostnames
 - [ ] support IPv6
 - [x] block host traffic
 - [x] support plain IPs

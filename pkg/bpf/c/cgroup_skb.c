@@ -1,5 +1,4 @@
 #include "headers/common.h"
-#include <bpf/bpf_endian.h>
 #include <linux/udp.h>
 
 #define PROTO_UDP 17
@@ -8,6 +7,7 @@
 #define MAX_IP_ENTRIES 512
 #define MAX_EGRESS_IPS 4096
 #define MAX_EGRESS_CIDRS 256
+#define MAX_EGRESS_WILDCARDS 255
 #define MAX_LABELS 12
 #define MAX_ANS_COUNT 1
 #define MAX_ANS_ADDR 4
@@ -62,7 +62,6 @@ struct cidr_config_val {
 const struct cidr_config_val *unused2 __attribute__((unused));
 
 // nested map used to block egress traffic based on CIDR ranges
-// this is a fixed size array.
 struct pod_egress_cidr_config {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_EGRESS_CIDRS);

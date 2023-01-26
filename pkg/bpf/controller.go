@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	v1alpha1 "github.com/moolen/skouter/api"
 	cache "github.com/moolen/skouter/pkg/dns_cache"
 	"github.com/moolen/skouter/pkg/util"
+	wc_cache "github.com/moolen/skouter/pkg/wildcard_cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -48,10 +50,12 @@ type Controller struct {
 	gwIfAddr   uint32
 	allowedDNS []uint32
 	dnsCache   *cache.Cache
+	wcCache    *wc_cache.Cache
 
 	hostIdxmu *sync.RWMutex
 	// hostIdx is a map: hostname => map[pod-key]=>allowed-state
 	hostIdx map[string]map[uint32]struct{}
+	ruleIdx map[uint32]map[string]*regexp.Regexp
 
 	ingressProg *ebpf.Program
 	egressProg  *ebpf.Program
@@ -143,6 +147,7 @@ func New(
 		gwAddr:     binary.LittleEndian.Uint32(gwAddr.To4()),
 		gwIfAddr:   binary.LittleEndian.Uint32(gwIfAddr.To4()),
 		dnsCache:   cache.New(log),
+		wcCache:    wc_cache.New(log),
 		nodeName:   nodeName,
 		nodeIP:     nodeIP,
 		auditMode:  auditMode,
@@ -403,6 +408,23 @@ func (c *Controller) runDNSReader() {
 	}
 }
 
+func (c *Controller) allowedByWildcard(hostnames []string, ips []net.IP, key uint32) (string, bool) {
+	c.hostIdxmu.RLock()
+	defer c.hostIdxmu.RUnlock()
+	rules := c.ruleIdx[key]
+	c.log.Debugf("checking allowed hostnames=%#v ips=%#v rules=%#v", hostnames, ips, rules)
+	for _, hostname := range hostnames {
+		// hostname has a trailing `.` (FQDN)
+		hostname := strings.TrimSuffix(hostname, ".")
+		for wildcard, re := range rules {
+			if re.MatchString(hostname) {
+				return wildcard, true
+			}
+		}
+	}
+	return "", false
+}
+
 func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) error {
 	if len(hosts) == 0 || len(ips) == 0 {
 		return nil
@@ -410,10 +432,9 @@ func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) e
 	c.hostIdxmu.RLock()
 	defer c.hostIdxmu.RUnlock()
 
-	// see if a host matches
-	var found bool
+	// see if there is a explicit host match
+	var allowedByHost bool
 	for _, host := range hosts {
-
 		// check if host index contains the hostname that has been requested
 		addrIdx, ok := c.hostIdx[host]
 		if !ok {
@@ -422,11 +443,16 @@ func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) e
 		// check if this pod is supposed to access this hostname
 		_, ok = addrIdx[key]
 		if ok {
-			found = true
+			allowedByHost = true
 		}
 	}
 
-	if !found {
+	wildcard, allowedByWildcard := c.allowedByWildcard(hosts, ips, key)
+	if allowedByWildcard {
+		c.wcCache.Observe(wildcard, hosts, ips)
+	}
+
+	if !allowedByHost && !allowedByWildcard {
 		for _, host := range hosts {
 			lookupForbiddenHostname.WithLabelValues(strconv.FormatUint(uint64(key), 10), host).Inc()
 		}
@@ -456,7 +482,7 @@ func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) e
 }
 
 func (c *Controller) updateConfig() error {
-	addrIdx, cidrIdx, hostIdx, err := c.generateIndices()
+	addrIdx, cidrIdx, hostIdx, ruleIdx, err := c.generateIndices()
 	if err != nil {
 		return err
 	}
@@ -579,10 +605,14 @@ func (c *Controller) updateConfig() error {
 		updateCIDRs(innerID, key, cidrs)
 	}
 
-	c.hostIdxmu.Lock()
+	// reconcile bpf maps
+	c.wcCache.ReconcileIndex(ruleIdx)
 	c.reconcileAddrMap(addrIdx)
 	c.reconcileCIDRMap(cidrIdx)
+
+	c.hostIdxmu.Lock()
 	c.hostIdx = hostIdx
+	c.ruleIdx = ruleIdx
 	c.hostIdxmu.Unlock()
 
 	return nil
@@ -590,6 +620,7 @@ func (c *Controller) updateConfig() error {
 
 func (c *Controller) dumpMap() {
 	c.log.Debug("dumping egress config")
+	c.wcCache.DumpMap()
 	it := c.egressConfig.Iterate()
 	var key uint32
 	var innerID ebpf.MapID
@@ -662,6 +693,12 @@ func (c *Controller) reconcileAddrMap(addrIdx map[uint32]map[uint32]uint32) {
 		for iit.Next(&destAddr, &allowed) {
 			// case: state exists in bpf map where it shouldn't
 			if _, ok := addrIdx[key][destAddr]; !ok {
+
+				// make sure this is not a wildcard
+				if c.wcCache.HasAddr(destAddr) {
+					continue
+				}
+
 				c.log.Debugf("reconciling egress ips, removing key=%s ip=%s", keyToIP(key), keyToIP(destAddr))
 				err = m.Delete(destAddr)
 				if err != nil && errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -737,14 +774,15 @@ func orderedCIDRMap(cidr map[string]*net.IPNet) []bpfCidrConfigVal {
 	return out
 }
 
-func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32]map[string]*net.IPNet, map[string]map[uint32]struct{}, error) {
+func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32]map[string]*net.IPNet, map[string]map[uint32]struct{}, map[uint32]map[string]*regexp.Regexp, error) {
 	addrIdx := make(map[uint32]map[uint32]uint32)
 	cidrIdx := make(map[uint32]map[string]*net.IPNet)
 	hostIdx := make(map[string]map[uint32]struct{})
+	addrRuleIdx := make(map[uint32]map[string]*regexp.Regexp)
 	var egressList v1alpha1.EgressList
 	err := c.client.List(c.ctx, &egressList)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	for _, egress := range egressList.Items {
 
@@ -752,6 +790,8 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 		hosts := []string{}
 		egressIPs := map[uint32]uint32{}
 		egressCIDRs := map[string]*net.IPNet{}
+		egressRegexs := map[string]*regexp.Regexp{}
+
 		for _, rule := range egress.Spec.Rules {
 			hosts = append(hosts, rule.Domains...)
 			// add static ips
@@ -778,6 +818,15 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 				}
 				egressCIDRs[net.String()] = net
 			}
+
+			for _, wildcard := range rule.Wildcards {
+				re, err := regexp.Compile(wildcard)
+				if err != nil {
+					c.log.Error(err)
+					continue
+				}
+				egressRegexs[wildcard] = re
+			}
 		}
 
 		// add allowed dns servers
@@ -801,6 +850,9 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 			if cidrIdx[key] == nil {
 				cidrIdx[key] = make(map[string]*net.IPNet)
 			}
+			if addrRuleIdx[key] == nil {
+				addrRuleIdx[key] = make(map[string]*regexp.Regexp)
+			}
 			// host firewall needs to be allowed to send traffic to
 			// the default gateway and to localhost
 			egressIPs[c.gwAddr] = ActionAllow
@@ -809,6 +861,7 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 			// add known IPs/CIDRs to map
 			mergeKeyMap(addrIdx[key], egressIPs)
 			mergeNetMap(cidrIdx[key], egressCIDRs)
+			mergeRegexpMap(addrRuleIdx[key], egressRegexs)
 
 			for _, hostname := range hosts {
 				if hostIdx[hostname] == nil {
@@ -824,7 +877,7 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 			client.MatchingLabels(egress.Spec.PodSelector.MatchLabels),
 			&client.ListOptions{FieldSelector: fields.ParseSelectorOrDie("spec.nodeName=" + c.nodeName)})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("unable to list pods: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("unable to list pods: %w", err)
 		}
 
 		// for every pod: prepare address and hostname indices
@@ -847,9 +900,13 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 			if cidrIdx[key] == nil {
 				cidrIdx[key] = make(map[string]*net.IPNet)
 			}
+			if addrRuleIdx[key] == nil {
+				addrRuleIdx[key] = make(map[string]*regexp.Regexp)
+			}
 			// add known IPs/CIDRs to map
 			mergeKeyMap(addrIdx[key], egressIPs)
 			mergeNetMap(cidrIdx[key], egressCIDRs)
+			mergeRegexpMap(addrRuleIdx[key], egressRegexs)
 
 			for _, host := range hosts {
 				// we need to normalize this to a fqdn
@@ -866,7 +923,7 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 			c.log.Debugf("got pod %s/%s=>%s => %#v", pod.Namespace, pod.Name, pod.Status.PodIP, addrIdx[key])
 		}
 	}
-	return addrIdx, cidrIdx, hostIdx, nil
+	return addrIdx, cidrIdx, hostIdx, addrRuleIdx, nil
 }
 
 func keyForAddr(addr net.IP) uint32 {
@@ -875,6 +932,15 @@ func keyForAddr(addr net.IP) uint32 {
 
 // copy keys from source into the dest map
 func mergeNetMap(dest map[string]*net.IPNet, src map[string]*net.IPNet) {
+	if src == nil {
+		return
+	}
+	for k, v := range src {
+		dest[k] = v
+	}
+}
+
+func mergeRegexpMap(dest map[string]*regexp.Regexp, src map[string]*regexp.Regexp) {
 	if src == nil {
 		return
 	}

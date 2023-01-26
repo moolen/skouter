@@ -73,6 +73,10 @@ spec:
                       items:
                         type: string
                       type: array
+                    wildcards:
+                      items:
+                        type: string
+                      type: array
                   type: object
                 type: array
             type: object
