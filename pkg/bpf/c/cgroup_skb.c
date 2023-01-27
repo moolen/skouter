@@ -1,5 +1,5 @@
 #include "headers/common.h"
-#include <linux/udp.h>
+#include "udp.h"
 
 #define PROTO_UDP 17
 #define PORT_DNS 13568 // htons(53)

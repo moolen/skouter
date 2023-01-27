@@ -35,7 +35,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event -type cidr_config_val bpf ./c/cgroup_skb.c -- -I./c/headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event -type cidr_config_val bpf ./c/cgroup_skb.c -- -I./c/headers -I/usr/include/x86_64-linux-gnu/
 type Controller struct {
 	ctx        context.Context
 	client     client.Client

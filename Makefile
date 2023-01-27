@@ -24,7 +24,7 @@ build: generate
 	mkdir -p bin
 	CGO_ENABLED=0 go build -ldflags='-extldflags=-static' -o bin/skouter main.go
 
-docker.build: build
+docker.build:
 	docker build -t $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG) .
 
 run: build
