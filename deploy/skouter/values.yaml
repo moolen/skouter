@@ -18,6 +18,11 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# skouter needs to run in hostNetwork so we're able to
+# discover node-local and gateway IPs
+# this is only needed for host firewall
+hostNetwork: true
+
 podAnnotations: {}
 
 podSecurityContext: {}

@@ -1,6 +1,6 @@
 IMAGE_REGISTRY ?= ghcr.io
 IMAGE_REPO ?= moolen/skouter
-IMAGE_TAG ?= 0.1.0
+IMAGE_TAG ?= dev
 
 CLANG ?= clang
 STRIP ?= llvm-strip

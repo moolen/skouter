@@ -23,23 +23,26 @@ import (
 	"github.com/jackpal/gateway"
 	"github.com/miekg/dns"
 	v1alpha1 "github.com/moolen/skouter/api"
-	cache "github.com/moolen/skouter/pkg/dns_cache"
+	dnscache "github.com/moolen/skouter/pkg/dns_cache"
 	"github.com/moolen/skouter/pkg/util"
-	wc_cache "github.com/moolen/skouter/pkg/wildcard_cache"
+	"github.com/moolen/skouter/pkg/wildcard"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event -type cidr_config_val bpf ./c/cgroup_skb.c -- -I./c/headers -I/usr/include/x86_64-linux-gnu/
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event -type cidr_config_val bpf ./c/cgroup_skb.c -- -I./c/headers
 type Controller struct {
 	ctx        context.Context
 	client     client.Client
 	log        logrus.FieldLogger
+	reg        *prometheus.Registry
 	auditMode  bool
 	nodeName   string
 	nodeIP     string
@@ -49,8 +52,8 @@ type Controller struct {
 	gwAddr     uint32
 	gwIfAddr   uint32
 	allowedDNS []uint32
-	dnsCache   *cache.Cache
-	wcCache    *wc_cache.Cache
+	dnsCache   *dnscache.Cache
+	wcCache    *wildcard.Cache
 
 	hostIdxmu *sync.RWMutex
 	// hostIdx is a map: hostname => map[pod-key]=>allowed-state
@@ -78,6 +81,8 @@ var (
 	ActionAllow = uint32(1)
 	ActionDeny  = uint32(2)
 
+	BPFMountDir = "skouter"
+
 	// inner map must be in sync with cgroup_skb.c
 	innerIPMap = &ebpf.MapSpec{
 		Name:       "pod_egress_config",
@@ -103,7 +108,8 @@ func New(
 	cgroupfs,
 	bpffs,
 	nodeName,
-	nodeIP string,
+	nodeIP,
+	cacheStoragePath string,
 	allowedDNS []string,
 	auditMode bool,
 	log logrus.FieldLogger,
@@ -136,9 +142,14 @@ func New(
 
 	log.Infof("discovered gateway=%s if=%s", gwAddr.String(), gwIfAddr.String())
 
+	wc := wildcard.New(log, cacheStoragePath)
+	wc.Restore()
+	go wc.Autosave(ctx, time.Second*15)
+
 	ctrl := &Controller{
 		ctx:        ctx,
 		log:        log,
+		reg:        reg,
 		updateChan: updateChan,
 		client:     client,
 		cgroupfs:   cgroupfs,
@@ -146,8 +157,8 @@ func New(
 		allowedDNS: dnsAddrs,
 		gwAddr:     binary.LittleEndian.Uint32(gwAddr.To4()),
 		gwIfAddr:   binary.LittleEndian.Uint32(gwIfAddr.To4()),
-		dnsCache:   cache.New(log),
-		wcCache:    wc_cache.New(log),
+		dnsCache:   dnscache.New(log),
+		wcCache:    wc,
 		nodeName:   nodeName,
 		nodeIP:     nodeIP,
 		auditMode:  auditMode,
@@ -160,22 +171,22 @@ func New(
 		return nil, err
 	}
 
-	newMetricsCollector(reg, ctrl)
 	return ctrl, nil
 }
 
 func (c *Controller) Run() error {
+	newMetricsCollector(c.reg, c)
+
 	// == initialisation process ==
 	//
 	// Before we _enforce_ egress traffic
 	// we must ensure that pre-existing connections to allowed hosts
 	// won't be impacted by us.
 	//
-	// Todo do so we'll issue DNS queries to find allowed IP addresses
+	// To do so we'll issue DNS queries to find allowed IP addresses
 	// and store them before we block traffic.
 	//
 	// 1. do not block egress traffic
-	//    This is implemente
 	// 2. query & store allowed hosts' IP addresses
 	// 3. block egress.
 
@@ -220,7 +231,6 @@ func (c *Controller) Run() error {
 				c.log.Error(err)
 			}
 		case <-tt.C:
-			c.dumpMap()
 			c.updateConfig()
 		}
 	}
@@ -258,7 +268,7 @@ func (c *Controller) preWarm() error {
 }
 
 func (c *Controller) loadBPF() error {
-	pinPath := filepath.Join(c.bpffs, "skouter")
+	pinPath := filepath.Join(c.bpffs, BPFMountDir)
 	err := os.MkdirAll(pinPath, os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("failed to create bpf fs subpath: %+v", err)
@@ -273,10 +283,6 @@ func (c *Controller) loadBPF() error {
 	if err != nil {
 		return fmt.Errorf("failed to load bpf progs: %+v", err)
 	}
-
-	c.log.Infof("map egress config pinned: %t", c.egressConfig.IsPinned())
-	c.log.Infof("map egress cidr config pinned: %t", c.egressCIDRConfig.IsPinned())
-	c.log.Infof("map dns config pinned: %t", c.dnsConfig.IsPinned())
 
 	return err
 }
@@ -627,47 +633,6 @@ func (c *Controller) updateConfig() error {
 	return nil
 }
 
-func (c *Controller) dumpMap() {
-	c.log.Debug("dumping egress config")
-	c.wcCache.DumpMap()
-	it := c.egressConfig.Iterate()
-	var key uint32
-	var innerID ebpf.MapID
-	for it.Next(&key, &innerID) {
-		c.log.Debugf("egress config key=%s", keyToIP(key))
-		m, err := ebpf.NewMapFromID(innerID)
-		if err != nil {
-			c.log.Warn(err)
-			continue
-		}
-		iit := m.Iterate()
-		var innerKey uint32
-		var innerVal uint32
-		for iit.Next(&innerKey, &innerVal) {
-			c.log.Debugf("[%s] %s=>%d", keyToIP(key), keyToIP(innerKey), innerVal)
-		}
-	}
-
-	c.log.Debug("dumping egress cidr config")
-	it = c.egressCIDRConfig.Iterate()
-	for it.Next(&key, &innerID) {
-		c.log.Debugf("egress cidr config key=%s", keyToIP(key))
-		m, err := ebpf.NewMapFromID(innerID)
-		if err != nil {
-			c.log.Warn(err)
-			continue
-		}
-		iit := m.Iterate()
-		var innerKey uint32
-		var innerVal bpfCidrConfigVal
-		for iit.Next(&innerKey, &innerVal) {
-			if innerVal.Addr != 0 && innerVal.Mask != 0 {
-				c.log.Debugf("[%s] %d=>%#v", keyToIP(key), innerKey, util.ToNetMask(innerVal.Addr, innerVal.Mask))
-			}
-		}
-	}
-}
-
 func keyToIP(addr uint32) string {
 	var buf bytes.Buffer
 	_ = binary.Write(&buf, binary.LittleEndian, addr)
@@ -843,14 +808,26 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 			egressIPs[addr] = ActionAllow
 		}
 
-		// add localhost
-		// TODO: add localhost CIDR 127.0.0.1/8
-		// 127.0.0.11 is used for DNS lookups on the host (using minikube)
-		egressIPs[keyForAddr(net.ParseIP("127.0.0.1"))] = ActionAllow
-		egressIPs[keyForAddr(net.ParseIP("127.0.0.11"))] = ActionAllow
+		// add localhost CIDR 127.0.0.1/8
+		egressCIDRs["127.0.0.1/8"] = &net.IPNet{
+			IP:   net.IP{0x7f, 0x0, 0x0, 0x0},
+			Mask: net.IPMask{0xff, 0x0, 0x0, 0x0}}
 
 		// handle host firewall
-		if egress.Spec.PodSelector == nil {
+		if egress.Spec.NodeSelector != nil {
+			// check if node matches selector
+			var node v1.Node
+			err := c.client.Get(context.Background(), types.NamespacedName{Name: c.nodeName}, &node)
+			if err != nil {
+				continue
+			}
+			sel := labels.SelectorFromValidatedSet(labels.Set(egress.Spec.NodeSelector.MatchLabels))
+			if !sel.Matches(labels.Set(node.ObjectMeta.Labels)) {
+				c.log.Debugf("egress %s node selector %#v doesn't match labels of this node %s: %#v",
+					&egress.ObjectMeta.Name, egress.Spec.NodeSelector.MatchLabels, c.nodeName, node.ObjectMeta.Labels)
+				continue
+			}
+
 			// TODO: check if node matches selector
 			key := keyForAddr(net.ParseIP(c.nodeIP))
 			if addrIdx[key] == nil {
@@ -984,6 +961,13 @@ func (c *Controller) Close() {
 	c.ingressProg.Close()
 	c.ingressLink.Close()
 	c.egressLink.Close()
+
+	// Flush wildcard cache to disk
+	// so it can be restored
+	err := c.wcCache.Save()
+	if err != nil {
+		c.log.Error(err)
+	}
 
 	// uncomment to clean up map state
 	// c.eventsMap.Unpin()

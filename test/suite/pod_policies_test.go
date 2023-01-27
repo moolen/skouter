@@ -33,7 +33,7 @@ var (
 	matchTestWorkloads = map[string]string{"e2e": "test"}
 )
 
-var _ = Describe("pod egress policies", Label("allow"), func() {
+var _ = Describe("pod egress policies", Label("pod"), func() {
 
 	var uid string
 	BeforeEach(func() {
@@ -51,10 +51,6 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 	})
 
 	AfterEach(func() {
-		// do not clean up resources if we're in debug mode
-		if CurrentGinkgoTestDescription().Failed && debugMode {
-			return
-		}
 		var podList v1.PodList
 		err := k8s.List(context.Background(), &podList, crclient.MatchingLabels(matchTestWorkloads))
 		Expect(err).ToNot(HaveOccurred())
@@ -74,21 +70,21 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 
 	It("allow pod egress with match, deny egress without match", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testNYTimes)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testNYTimes, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+		}).WithTimeout(testTimeout).Should(HaveOccurred())
 	})
 
 	It("allow pod egress after egress crd has been updated", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 
 		err := k8s.Patch(context.Background(),
 			podEgressPolicy(
@@ -104,16 +100,16 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() error {
-			_, err = ExecCmd(clientSet, restConfig, uid, "default", testNYTimes)
+			_, err = ExecCmd(clientSet, restConfig, uid, "default", testNYTimes, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 	})
 
 	It("deny egress after egress rule has been removed", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 
 		By("removing egress rules")
 		err := k8s.Patch(context.Background(),
@@ -127,21 +123,21 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() string {
-			out, _ := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			out, _ := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return out
-		}).WithTimeout(time.Second * 30).WithPolling(time.Second).Should(ContainSubstring("download timed out"))
+		}).WithTimeout(testTimeout).WithPolling(time.Second).Should(ContainSubstring("download timed out"))
 	})
 
 	It("allow pod egress after egress cidr has been updated", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+		}).WithTimeout(testTimeout).Should(HaveOccurred())
 
 		err := k8s.Patch(context.Background(),
 			podEgressPolicy(
@@ -155,21 +151,21 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() error {
-			_, err = ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
+			_, err = ExecCmd(clientSet, restConfig, uid, "default", testGitHub, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 	})
 
 	It("allow wildcard egress after crd has been updated", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testWikiDE)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testWikiDE, "", testTimeout)
 			return err
-		}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+		}).WithTimeout(testTimeout).Should(HaveOccurred())
 
 		err := k8s.Patch(context.Background(),
 			podEgressPolicy(
@@ -182,9 +178,9 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 
 		for _, test := range []string{testWikiDE, testWikiEN} {
 			Eventually(func() error {
-				_, err = ExecCmd(clientSet, restConfig, uid, "default", test)
+				_, err = ExecCmd(clientSet, restConfig, uid, "default", test, "", testTimeout)
 				return err
-			}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+			}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 		}
 
 		// remove rule again
@@ -199,13 +195,13 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 
 		for _, test := range []string{testWikiDE, testWikiEN} {
 			Eventually(func() error {
-				_, err = ExecCmd(clientSet, restConfig, uid, "default", test)
+				_, err = ExecCmd(clientSet, restConfig, uid, "default", test, "", testTimeout)
 				return err
-			}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+			}).WithTimeout(testTimeout).Should(HaveOccurred())
 		}
 	})
 
-	It("pods with host networking must not be affected by egress policy with podSelector", func() {
+	It("pods with host networking must not be affected by egress policy with podSelector", Label("host"), func() {
 		name := uid + "-hostnet"
 		err := k8s.Create(context.Background(), testPod(name, defaultLabels(name), true))
 		Expect(err).ToNot(HaveOccurred())
@@ -215,7 +211,7 @@ var _ = Describe("pod egress policies", Label("allow"), func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		for _, tc := range []string{testExampleCom, testNYTimes, testHTTPBin, testK8sRegistry} {
-			_, err = ExecCmd(clientSet, restConfig, name, "default", tc)
+			_, err = ExecCmd(clientSet, restConfig, name, "default", tc, "", testTimeout)
 			Expect(err).ToNot(HaveOccurred())
 		}
 	})
@@ -241,6 +237,9 @@ func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, wi
 					Domains:   domains,
 					CIDRs:     cidrs,
 					Wildcards: wildcards,
+				},
+				{
+					IPs: controlPlaneAddrs,
 				},
 			},
 		},

@@ -1,6 +1,7 @@
-package cache
+package wildcard
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -8,8 +9,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	MaxKeys         = 8192
+	DefaultTTL      = time.Minute * 5
+	StorageFilename = "wildcards.json"
+)
+
 type Cache struct {
-	log logrus.FieldLogger
+	log         logrus.FieldLogger
+	storagePath string
 
 	// we need to synchronize both caches
 	// otherwise we may end up in an inconsistent state
@@ -26,20 +34,34 @@ type Cache struct {
 	wildcardIdx cache.Cache[uint32, map[string]map[string]uint32]
 }
 
-const (
-	MaxKeys    = 8192
-	DefaultTTL = time.Minute * 5
-)
-
-func New(log logrus.FieldLogger) *Cache {
-	return &Cache{
-		log: log,
-		mu:  &sync.Mutex{},
+func New(log logrus.FieldLogger, storagePath string) *Cache {
+	c := &Cache{
+		log:         log,
+		storagePath: storagePath,
+		mu:          &sync.Mutex{},
 		wildcardData: cache.NewCache[string, map[string]map[uint32]uint32]().
 			WithMaxKeys(MaxKeys).
 			WithLRU(),
 		wildcardIdx: cache.NewCache[uint32, map[string]map[string]uint32]().
 			WithMaxKeys(MaxKeys).
 			WithLRU(),
+	}
+
+	return c
+}
+
+// periodically flush state to disk
+func (c *Cache) Autosave(ctx context.Context, d time.Duration) {
+	tt := time.NewTicker(d)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tt.C:
+			err := c.Save()
+			if err != nil {
+				c.log.Errorf("unable to save wildcard cache: %s", err.Error())
+			}
+		}
 	}
 }

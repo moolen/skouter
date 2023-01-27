@@ -17,7 +17,7 @@ func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 	// lookup address and store it
 	addrs, err := net.LookupIP(hostname)
 	if err != nil {
-		c.log.Error("unable to lookup hostname %s: %s", hostname, err.Error())
+		c.log.Errorf("unable to lookup hostname %s: %s", hostname, err.Error())
 		return nil
 	}
 	data = make(map[uint32]struct{})

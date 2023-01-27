@@ -75,6 +75,10 @@ kind: Egress
 metadata:
   name: example
 spec:
+  # use nodeSelector to set up
+  # host firewall
+  nodeSelector: {}
+  # match a particular pod
   podSelector:
     matchLabels:
       run: alpine

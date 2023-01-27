@@ -23,8 +23,7 @@ spec:
 #   name: host
 # spec:
 #   nodeSelector:
-#     # todo: support matchLabels
-#     #       currently this applies to all nodes
+#     # applies to all nodes
 #     matchLabels: {}
 #   rules:
 #     - domains:

@@ -26,6 +26,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	// enable profiling
+	_ "net/http/pprof"
 )
 
 var (
@@ -54,16 +57,7 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := ctrl.SetupSignalHandler()
 		log.Info("creating kubernetes client")
-		var cfg *rest.Config
-		var err error
-		if kubeconfig != "" {
-			cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		} else {
-			cfg, err = rest.InClusterConfig()
-		}
-		if err != nil {
-			log.Fatalf("unable to get in-cluster config: %s", err.Error())
-		}
+		cfg := kubeConfig()
 		mgr, err := ctrl.NewManager(cfg, manager.Options{
 			Scheme: scheme,
 		})
@@ -120,7 +114,7 @@ var rootCmd = &cobra.Command{
 		go mgr.Start(ctx)
 
 		reg := prometheus.NewRegistry()
-		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, nodeName, nodeIP, allowedDNS, auditMode, log, updateTicker, reg)
+		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, nodeName, nodeIP, cacheStoragePath, allowedDNS, auditMode, log, updateTicker, reg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -139,6 +133,20 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+func kubeConfig() *rest.Config {
+	var cfg *rest.Config
+	var err error
+	if kubeconfig != "" {
+		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	} else {
+		cfg, err = rest.InClusterConfig()
+	}
+	if err != nil {
+		log.Fatalf("unable to get in-cluster config: %s", err.Error())
+	}
+	return cfg
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
@@ -149,24 +157,26 @@ func Execute() {
 }
 
 var (
-	nodeName   string
-	nodeIP     string
-	auditMode  bool
-	logLevel   string
-	kubeconfig string
-	cgroupfs   string
-	bpffs      string
-	allowedDNS []string
+	nodeName         string
+	nodeIP           string
+	cacheStoragePath string
+	auditMode        bool
+	logLevel         string
+	kubeconfig       string
+	cgroupfs         string
+	bpffs            string
+	allowedDNS       []string
 )
 
 func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&logLevel, "loglevel", "INFO", "loglevel to use (debug, info, warn, error)")
+	rootCmd.PersistentFlags().StringVar(&cacheStoragePath, "cache-storage-path", "/var/run/skouter/cache", "path to the skouter cache dir.")
+	rootCmd.PersistentFlags().StringVar(&bpffs, "bpffs", "/host/sys/fs/bpf", "")
 	rootCmd.Flags().StringVar(&nodeName, "node-name", "", "")
 	rootCmd.Flags().StringVar(&nodeIP, "node-ip", "", "ip address of this node. Used to filter egress traffic on the host namespace.")
 	rootCmd.Flags().BoolVar(&auditMode, "audit-mode", false, "enable audit mode - no actual blocking will be done. This must be specified on start-up and can not be changed during runtime. Metrics `audit_blocked_addr` will contain the IPs egressing")
 	rootCmd.Flags().StringVar(&cgroupfs, "cgroupfs", "/sys/fs/cgroup/kubepods.slice", "")
-	rootCmd.Flags().StringVar(&bpffs, "bpffs", "/sys/fs/bpf", "")
 	rootCmd.Flags().StringArrayVar(&allowedDNS, "allowed-dns", []string{"10.96.0.10"}, "allowed dns server address")
 	rootCmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig to use (out-of-cluster config)")
 }

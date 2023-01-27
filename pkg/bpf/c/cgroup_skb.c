@@ -1,5 +1,4 @@
 #include "headers/common.h"
-#include "udp.h"
 
 #define PROTO_UDP 17
 #define PORT_DNS 13568 // htons(53)
@@ -372,8 +371,8 @@ int egress(struct __sk_buff *skb) {
     return TC_ALLOW;
   }
 
-  bpf_printk("pod is subject to egress filter key=%d saddr=%d daddr=%d", key,
-             ip->saddr, ip->daddr);
+  // bpf_printk("pod is subject to egress filter key=%d saddr=%d daddr=%d", key,
+  //            ip->saddr, ip->daddr);
 
   if (egress_ip_allowed(key, ip->daddr) == TC_BLOCK &&
       egress_cidr_allowed(key, ip->daddr) == TC_BLOCK) {

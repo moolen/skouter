@@ -1,15 +1,14 @@
-package cache
+package wildcard
 
 import (
 	"encoding/json"
-	"fmt"
 	"net"
 	"regexp"
 
 	"github.com/moolen/skouter/pkg/util"
 )
 
-// Store the host
+// Observe should be called to store a DNS response from a bunch of hosts/addrs.
 func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -54,23 +53,25 @@ func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
 	return nil
 }
 
+// DumpMap dumps the maps contents
 func (c *Cache) DumpMap() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, k := range c.wildcardData.Keys() {
 		data, _ := c.wildcardData.Get(k)
 		datas, _ := json.Marshal(data)
-		fmt.Printf("data[%s] => %s\n", k, string(datas))
+		c.log.Debugf("data[%s] => %s", k, string(datas))
 	}
 
 	for _, k := range c.wildcardIdx.Keys() {
 		data, _ := c.wildcardIdx.Get(k)
 		datas, _ := json.Marshal(data)
-		fmt.Printf("idx[%d] => %s\n", k, string(datas))
+		c.log.Debugf("idx[%d] => %s", k, string(datas))
 	}
 }
 
-// Store the host
+// Reconciles the internal state with the given ruleIdx.
+// This evicts IPs from both index and data caches.
 func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -81,7 +82,7 @@ func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) err
 		}
 	}
 
-	fmt.Printf("reconciling wc idx: %#v | %#v\n", c.wildcardData.Keys(), c.wildcardIdx.Keys())
+	c.log.Debugf("reconciling wc idx: %#v | %#v", c.wildcardData.Keys(), c.wildcardIdx.Keys())
 	for _, wildcard := range c.wildcardData.Keys() {
 		// case: rule was removed
 		if _, ok := desiredWildcards[wildcard]; !ok {
@@ -89,21 +90,21 @@ func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) err
 			if !ok {
 				continue
 			}
-			fmt.Printf("stale date: %#v\n", staleData)
+			c.log.Debugf("stale date: %#v", staleData)
 			// delete addr from index
 			for _, addrMap := range staleData {
 				for addr := range addrMap {
-					fmt.Printf("checking idx: %#v\n", addr)
+					c.log.Debugf("checking idx: %#v", addr)
 					idxData, ok := c.wildcardIdx.Get(addr)
 					if !ok {
 						continue
 					}
 					delete(idxData, wildcard)
 					if len(idxData) == 0 {
-						fmt.Printf("deleting idx key: %#v\n", addr)
+						c.log.Debugf("deleting idx key: %#v", addr)
 						c.wildcardIdx.Invalidate(addr)
 					} else {
-						fmt.Printf("updating idx data: %#v\n", idxData)
+						c.log.Debugf("updating idx data: %#v", idxData)
 						c.wildcardIdx.Set(addr, idxData, 0)
 					}
 				}
@@ -115,6 +116,8 @@ func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) err
 	return nil
 }
 
+// HasAddr returns true if the given address exists
+// in cache and hence is allow-listed.
 func (c *Cache) HasAddr(addr uint32) bool {
 	_, ok := c.wildcardIdx.Get(addr)
 	return ok

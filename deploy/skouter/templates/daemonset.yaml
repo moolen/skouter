@@ -13,10 +13,8 @@ spec:
         app: skouter
     spec:
       serviceAccountName: skouter
-      # skouter needs to run in hostNetwork so we're able to
-      # discover node-local and gateway IPs
-      # this is only needed for host firewall
-      hostNetwork: true
+      hostNetwork: {{ .Values.hostNetwork }}
+      dnsPolicy: ClusterFirstWithHostNet
       volumes:
         - name: cgroup2
           hostPath:
@@ -24,6 +22,9 @@ spec:
         - name: bpffs
           hostPath:
             path: /sys/fs/bpf
+        - name: skouter-state
+          hostPath:
+            path: /var/run/skouter
       initContainers:
       - name: mount-bpf-fs
         image: {{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag | default .Chart.AppVersion }}
@@ -74,4 +75,6 @@ spec:
             name: cgroup2
           - mountPath: /host/sys/fs/bpf
             name: bpffs
+          - mountPath: /var/run/skouter
+            name: skouter-state
 ---

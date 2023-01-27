@@ -16,13 +16,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("host egress policies", Label("allow"), func() {
+var _ = Describe("host egress policies", Label("host"), func() {
 
 	var uid string
 	BeforeEach(func() {
 		defer GinkgoRecover()
 		uid = uuid.New().String()
-		err := k8s.Create(context.Background(), hostEgressPolicy(uid, defaultLabels(uid), []string{"example.com"}, nil))
+		err := k8s.Create(context.Background(), hostEgressPolicy(uid, map[string]string{}, []string{"example.com"}, nil))
 		Expect(err).ToNot(HaveOccurred())
 		By("creating pod under test")
 		err = k8s.Create(context.Background(), testPod(uid, defaultLabels(uid), true))
@@ -34,10 +34,6 @@ var _ = Describe("host egress policies", Label("allow"), func() {
 	})
 
 	AfterEach(func() {
-		// do not clean up resources if we're in debug mode
-		if CurrentGinkgoTestDescription().Failed && debugMode {
-			return
-		}
 		var podList v1.PodList
 		err := k8s.List(context.Background(), &podList, crclient.MatchingLabels(matchTestWorkloads))
 		Expect(err).ToNot(HaveOccurred())
@@ -57,27 +53,27 @@ var _ = Describe("host egress policies", Label("allow"), func() {
 
 	It("allow host egress with match, deny egress without match", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", time.Second*10)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 
 		for _, test := range []string{testNYTimes, testK8sRegistry, testHTTPBin} {
 			Eventually(func() error {
-				_, err := ExecCmd(clientSet, restConfig, uid, "default", test)
+				_, err := ExecCmd(clientSet, restConfig, uid, "default", test, "", time.Second*10)
 				return err
-			}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+			}).WithTimeout(testTimeout).Should(HaveOccurred())
 		}
 	})
 
 	It("allow host egress with CIDR", func() {
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub, "", time.Second*10)
 			return err
-		}).WithTimeout(time.Second * 30).Should(HaveOccurred())
+		}).WithTimeout(testTimeout).Should(HaveOccurred())
 
 		err := k8s.Patch(context.Background(),
 			hostEgressPolicy(
-				uid, defaultLabels(uid),
+				uid, map[string]string{},
 				nil,
 				[]string{
 					githubCIDR,
@@ -86,9 +82,9 @@ var _ = Describe("host egress policies", Label("allow"), func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() error {
-			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub)
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testGitHub, "", time.Second*10)
 			return err
-		}).WithTimeout(time.Second * 30).ShouldNot(HaveOccurred())
+		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 	})
 })
 
@@ -118,6 +114,7 @@ func hostEgressPolicy(uid string, nodeLabels map[string]string, domains []string
 						"download.docker.com",
 						"registry.k8s.io",
 					},
+					IPs: controlPlaneAddrs,
 				},
 			},
 		},

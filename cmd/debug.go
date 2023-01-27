@@ -15,8 +15,7 @@
 package cmd
 
 import (
-	"fmt"
-
+	"github.com/moolen/skouter/pkg/bpf"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +25,11 @@ var debugCmd = &cobra.Command{
 	Short: "",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("debug called")
-
-		// load bpf maps from fs
-
-		// dump bpf maps
+		log.Debugf("debug called")
+		err := bpf.DumpConfig(log, bpffs, cacheStoragePath)
+		if err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 

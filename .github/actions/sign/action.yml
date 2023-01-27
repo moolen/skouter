@@ -36,7 +36,7 @@ runs:
       run: go install github.com/google/go-containerregistry/cmd/crane@v0.11.0
 
     - name: Install Syft
-      uses: anchore/sbom-action/download-syft@v0.7.0
+      uses: anchore/sbom-action/download-syft@v0
 
     - name: Check Cosign install
       shell: bash

@@ -14,11 +14,15 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"flag"
 	"testing"
+	"time"
 
 	// nolint
 	. "github.com/onsi/ginkgo/v2"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +36,12 @@ var (
 	clientSet  *kubernetes.Clientset
 	restConfig *rest.Config
 	debugMode  bool
+
+	// We need to store control plane addrs since we `exec` into the pod
+	// which proxies through kube-apiserver and kubelet.
+	// without this the node is not able to talk to the control plane.
+	controlPlaneAddrs []string
+	testTimeout       = time.Second * 30
 )
 
 func init() {
@@ -40,6 +50,20 @@ func init() {
 
 var _ = SynchronizedBeforeSuite(func() []byte {
 	restConfig, clientSet, k8s = NewConfig()
+
+	cpNodes, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{
+		LabelSelector: "node-role.kubernetes.io/control-plane",
+	})
+	if err != nil {
+		panic(err)
+	}
+	for _, node := range cpNodes.Items {
+		for _, addr := range node.Status.Addresses {
+			if addr.Type == v1.NodeInternalIP {
+				controlPlaneAddrs = append(controlPlaneAddrs, addr.Address)
+			}
+		}
+	}
 	return nil
 }, func([]byte) {
 	// noop

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	v1alpha1 "github.com/moolen/skouter/api"
@@ -100,7 +101,7 @@ func WaitForPodsRunning(kubeClientSet kubernetes.Interface, expectedReplicas int
 
 // ExecCmd exec command on specific pod and wait the command's output.
 func ExecCmd(client kubernetes.Interface, config *rest.Config, podName, namespace string,
-	command string) (string, error) {
+	command, stdin string, timeout time.Duration) (string, error) {
 	cmd := []string{
 		"sh",
 		"-c",
@@ -111,7 +112,7 @@ func ExecCmd(client kubernetes.Interface, config *rest.Config, podName, namespac
 		Namespace(namespace).SubResource("exec")
 	option := &v1.PodExecOptions{
 		Command: cmd,
-		Stdin:   false,
+		Stdin:   true,
 		Stdout:  true,
 		Stderr:  true,
 		TTY:     false,
@@ -125,7 +126,11 @@ func ExecCmd(client kubernetes.Interface, config *rest.Config, podName, namespac
 		return "", err
 	}
 	var stdout, stderr bytes.Buffer
-	err = exec.StreamWithContext(context.Background(), remotecommand.StreamOptions{
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin:  strings.NewReader(stdin),
 		Stdout: &stdout,
 		Stderr: &stderr,
 		Tty:    false,
