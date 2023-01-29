@@ -6,11 +6,6 @@
 #define MAX_IP_ENTRIES 512
 #define MAX_EGRESS_IPS 4096
 #define MAX_EGRESS_CIDRS 256
-#define MAX_EGRESS_WILDCARDS 255
-#define MAX_LABELS 12
-#define MAX_ANS_COUNT 1
-#define MAX_ANS_ADDR 4
-#define MAX_QNAME_LEN 64
 #define MAX_PKT 768
 
 #define TC_ALLOW 1

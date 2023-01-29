@@ -117,7 +117,7 @@ var _ = Describe("load test", Label("load"), Ordered, func() {
 		<-done
 	})
 
-	It("run load test with wildcard domain", func() {
+	It("run load test with regex domain", func() {
 		By("creating egress policy")
 		err := k8s.Create(context.Background(), podEgressPolicy(podName, defaultLabels(podName), nil, nil, []string{
 			".*default.svc.cluster.local",

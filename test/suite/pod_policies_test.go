@@ -156,7 +156,7 @@ var _ = Describe("pod egress policies", Label("pod"), func() {
 		}).WithTimeout(testTimeout).ShouldNot(HaveOccurred())
 	})
 
-	It("allow wildcard egress after crd has been updated", func() {
+	It("allow regex egress after crd has been updated", func() {
 		Eventually(func() error {
 			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return err
@@ -217,7 +217,7 @@ var _ = Describe("pod egress policies", Label("pod"), func() {
 	})
 })
 
-func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, wildcards []string) *v1alpha1.Egress {
+func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, regexps []string) *v1alpha1.Egress {
 	return &v1alpha1.Egress{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       v1alpha1.EgressKind,
@@ -234,9 +234,9 @@ func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, wi
 			},
 			Rules: []v1alpha1.EgressRule{
 				{
-					Domains:   domains,
-					CIDRs:     cidrs,
-					Wildcards: wildcards,
+					Domains: domains,
+					CIDRs:   cidrs,
+					Regexps: regexps,
 				},
 				{
 					IPs: controlPlaneAddrs,

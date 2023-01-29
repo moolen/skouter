@@ -73,7 +73,7 @@ spec:
                       items:
                         type: string
                       type: array
-                    wildcards:
+                    regex:
                       items:
                         type: string
                       type: array

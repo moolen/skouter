@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"github.com/moolen/skouter/pkg/bpf"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,7 @@ var debugCmd = &cobra.Command{
 	Short: "",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
+		log.SetLevel(logrus.DebugLevel)
 		log.Debugf("debug called")
 		err := bpf.DumpConfig(log, bpffs, cacheStoragePath)
 		if err != nil {

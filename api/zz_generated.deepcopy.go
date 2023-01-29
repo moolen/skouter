@@ -76,8 +76,8 @@ func (in *EgressRule) DeepCopyInto(out *EgressRule) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.Wildcards != nil {
-		in, out := &in.Wildcards, &out.Wildcards
+	if in.Regexps != nil {
+		in, out := &in.Regexps, &out.Regexps
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

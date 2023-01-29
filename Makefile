@@ -30,6 +30,25 @@ docker.build:
 run: build
 	sudo -E ./bin/skouter --kubeconfig ~/.kube/config --loglevel debug --node-name minikube --cgroupfs /sys/fs/cgroup
 
+lint.check: ## Check install of golanci-lint
+	@if ! golangci-lint --version > /dev/null 2>&1; then \
+		echo -e "\033[0;33mgolangci-lint is not installed: run \`\033[0;32mmake lint.install\033[0m\033[0;33m\` or install it from https://golangci-lint.run\033[0m"; \
+		exit 1; \
+	fi
+
+lint.install: ## Install golangci-lint to the go bin dir
+	@if ! golangci-lint --version > /dev/null 2>&1; then \
+		echo "Installing golangci-lint"; \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.49.0; \
+	fi
+
+lint: lint.check ## Run golangci-lint
+	@if ! golangci-lint run; then \
+		echo -e "\033[0;33mgolangci-lint failed: some checks can be fixed with \`\033[0;32mmake fmt\033[0m\033[0;33m\`\033[0m"; \
+		exit 1; \
+	fi
+	@echo Finished linting
+
 .PHONY: example
 example: docker.build
 	kubectl apply -f ./crds/

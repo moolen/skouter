@@ -92,7 +92,7 @@ spec:
     - cidrs:
       - 127.0.0.1/8
       - 10.0.10.0/24
-    wildcards:
+    - regex:
       - .*\.wikipedia\.org # de|en|...
 ```
 

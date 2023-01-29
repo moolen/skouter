@@ -8,21 +8,13 @@ import (
 	v1alpha1 "github.com/moolen/skouter/api"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/moolen/skouter/pkg/bpf"
-	"github.com/moolen/skouter/pkg/egress"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -58,63 +50,21 @@ var rootCmd = &cobra.Command{
 		ctx := ctrl.SetupSignalHandler()
 		log.Info("creating kubernetes client")
 		cfg := kubeConfig()
-		mgr, err := ctrl.NewManager(cfg, manager.Options{
-			Scheme: scheme,
-		})
-		if err != nil {
-			log.Fatalf("unable to setup controller-runtime manager")
-		}
-		// setup indexer so we are able to list pods with nodeName
-		if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Pod{}, "spec.nodeName", func(o client.Object) []string {
-			pod := o.(*v1.Pod)
-			return []string{pod.Spec.NodeName}
-		}); err != nil {
-			log.Fatal(err)
-		}
-
-		// this channel is used to indicate that the config
-		// should be reloaded/changed.
-		updateTicker := make(chan struct{})
-		if err = egress.NewReconciler(mgr.GetClient(), log, scheme, updateTicker).
-			SetupWithManager(mgr, controller.Options{}); err != nil {
-			log.Fatalf("unable to setup egress reconciler")
-		}
-		if err != nil {
-			log.Fatalf("unable to create ctrl manager")
-		}
-
-		clientSet, err := kubernetes.NewForConfig(cfg)
-		if err != nil {
-			log.Fatalf("unable to create kubernetes client: %s", err.Error())
-		}
-		podWatch, err := clientSet.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{
-			FieldSelector: "spec.nodeName=" + nodeName,
-		})
-		if err != nil {
-			log.Fatalf("unable to watch pods: %s", err.Error())
-		}
-
-		go func() {
-			log.Infof("starting pod watcher")
-			for {
-				select {
-				case ev := <-podWatch.ResultChan():
-					if ev.Type == watch.Error || ev.Type == "" || ev.Object == nil {
-						continue
-					}
-					updateTicker <- struct{}{}
-				case <-ctx.Done():
-					log.Infof("shutdown pod watcher")
-					return
-				}
-			}
-		}()
 
 		log.Info("launching egress resource controller manager")
-		go mgr.Start(ctx)
 
 		reg := prometheus.NewRegistry()
-		bpfctrl, err := bpf.New(ctx, mgr.GetClient(), cgroupfs, bpffs, nodeName, nodeIP, cacheStoragePath, allowedDNS, auditMode, log, updateTicker, reg)
+		bpfctrl, err := bpf.New(ctx,
+			cfg,
+			cgroupfs,
+			bpffs,
+			nodeName,
+			nodeIP,
+			cacheStoragePath,
+			allowedDNS,
+			auditMode,
+			log,
+			reg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -127,7 +77,12 @@ var rootCmd = &cobra.Command{
 			}
 		}()
 		http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-		go http.ListenAndServe(":3000", nil)
+		go func() {
+			err := http.ListenAndServe(":3000", nil)
+			if err != nil {
+				log.Error(err)
+			}
+		}()
 
 		<-ctx.Done()
 	},

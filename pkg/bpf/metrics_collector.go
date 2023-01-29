@@ -27,10 +27,36 @@ var (
 	dnsParseError = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "dns_parse_error",
 	}, []string{"node", "key"})
+	reconcileMaps = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "reconcile_maps",
+	}, nil)
+	updateIndices = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "update_indices",
+	}, nil)
+	reconcileAddrMap = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "reconcile_addr_map",
+	}, nil)
+	reconcileCIDRMap = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "reconcile_cidr_map",
+	}, nil)
+	reconcileRegexpCache = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "reconcile_regexp_cache",
+	}, nil)
+	processDNSPacket = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "process_dns_packet",
+		Buckets: []float64{0.000001, 0.0000025, 0.000005, 0.00001, 0.000025, 0.00005, 0.0001, 0.001},
+	}, nil)
 )
 
 func newMetricsCollector(reg prometheus.Registerer, c *Controller) {
 	reg.MustRegister(lookupForbiddenHostname)
+	reg.MustRegister(dnsParseError)
+	reg.MustRegister(reconcileMaps)
+	reg.MustRegister(updateIndices)
+	reg.MustRegister(reconcileAddrMap)
+	reg.MustRegister(reconcileCIDRMap)
+	reg.MustRegister(reconcileRegexpCache)
+	reg.MustRegister(processDNSPacket)
 	reg.MustRegister(&MetricsCollector{
 		controller: c,
 	})

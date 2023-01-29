@@ -24,10 +24,11 @@ var (
 
 // Egress type metadata.
 var (
-	EgressKind             = reflect.TypeOf(Egress{}).Name()
-	EgressGroupKind        = schema.GroupKind{Group: Group, Kind: EgressKind}.String()
-	EgressKindAPIVersion   = EgressKind + "." + SchemeGroupVersion.String()
-	EgressGroupVersionKind = SchemeGroupVersion.WithKind(EgressKind)
+	EgressKind                 = reflect.TypeOf(Egress{}).Name()
+	EgressGroupKind            = schema.GroupKind{Group: Group, Kind: EgressKind}.String()
+	EgressKindAPIVersion       = EgressKind + "." + SchemeGroupVersion.String()
+	EgressGroupVersionKind     = SchemeGroupVersion.WithKind(EgressKind)
+	EgressGroupVersionResource = schema.GroupVersionResource{Group: Group, Version: Version, Resource: "egresses"}
 )
 
 func init() {

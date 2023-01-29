@@ -3,12 +3,12 @@ package wildcard
 import (
 	"encoding/json"
 	"net"
-	"regexp"
 
 	"github.com/moolen/skouter/pkg/util"
 )
 
 // Observe should be called to store a DNS response from a bunch of hosts/addrs.
+// It writes the observed hostnames / ip addresses to the internal cache
 func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -72,45 +72,41 @@ func (c *Cache) DumpMap() {
 
 // Reconciles the internal state with the given ruleIdx.
 // This evicts IPs from both index and data caches.
-func (c *Cache) ReconcileIndex(ruleIdx map[uint32]map[string]*regexp.Regexp) error {
+func (c *Cache) ReconcileIndex(desiredWildcards map[string]struct{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	desiredWildcards := make(map[string]string)
-	for _, rule := range ruleIdx {
-		for wildcard := range rule {
-			desiredWildcards[wildcard] = wildcard
-		}
-	}
 
 	c.log.Debugf("reconciling wc idx: %#v | %#v", c.wildcardData.Keys(), c.wildcardIdx.Keys())
 	for _, wildcard := range c.wildcardData.Keys() {
-		// case: rule was removed
-		if _, ok := desiredWildcards[wildcard]; !ok {
-			staleData, ok := c.wildcardData.Get(wildcard)
-			if !ok {
-				continue
-			}
-			c.log.Debugf("stale date: %#v", staleData)
-			// delete addr from index
-			for _, addrMap := range staleData {
-				for addr := range addrMap {
-					c.log.Debugf("checking idx: %#v", addr)
-					idxData, ok := c.wildcardIdx.Get(addr)
-					if !ok {
-						continue
-					}
-					delete(idxData, wildcard)
-					if len(idxData) == 0 {
-						c.log.Debugf("deleting idx key: %#v", addr)
-						c.wildcardIdx.Invalidate(addr)
-					} else {
-						c.log.Debugf("updating idx data: %#v", idxData)
-						c.wildcardIdx.Set(addr, idxData, 0)
-					}
+		// case: rule still exists: ignore
+		if _, ok := desiredWildcards[wildcard]; ok {
+			continue
+		}
+		// case: rule was removed: cleanup data + index
+		staleData, ok := c.wildcardData.Get(wildcard)
+		if !ok {
+			continue
+		}
+		c.log.Debugf("stale date: %#v", staleData)
+		// delete addr from index
+		for _, addrMap := range staleData {
+			for addr := range addrMap {
+				c.log.Debugf("checking idx: %#v", addr)
+				idxData, ok := c.wildcardIdx.Get(addr)
+				if !ok {
+					continue
+				}
+				delete(idxData, wildcard)
+				if len(idxData) == 0 {
+					c.log.Debugf("deleting idx key: %#v", addr)
+					c.wildcardIdx.Invalidate(addr)
+				} else {
+					c.log.Debugf("updating idx data: %#v", idxData)
+					c.wildcardIdx.Set(addr, idxData, 0)
 				}
 			}
-			c.wildcardData.Invalidate(wildcard)
 		}
+		c.wildcardData.Invalidate(wildcard)
 	}
 
 	return nil
