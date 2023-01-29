@@ -79,7 +79,6 @@ var (
 	// needs to be in sync with cgroup_skb.c
 	// TODO: pull these settings from bytecode so there's no need to sync
 	ActionAllow = uint32(1)
-	ActionDeny  = uint32(2)
 
 	BPFMountDir = "skouter"
 
@@ -828,7 +827,6 @@ func (c *Controller) generateIndices() (map[uint32]map[uint32]uint32, map[uint32
 				continue
 			}
 
-			// TODO: check if node matches selector
 			key := keyForAddr(net.ParseIP(c.nodeIP))
 			if addrIdx[key] == nil {
 				addrIdx[key] = make(map[uint32]uint32)

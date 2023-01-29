@@ -22,7 +22,6 @@ typedef __u32 __be32;
 typedef __u64 __be64;
 typedef __u32 __wsum;
 
-#include "types.h"
 #include "bpf_helpers.h"
 
 enum bpf_map_type {
@@ -57,26 +56,7 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_INODE_STORAGE         = 28,
 };
 
-enum xdp_action {
-	XDP_ABORTED = 0,
-	XDP_DROP = 1,
-	XDP_PASS = 2,
-	XDP_TX = 3,
-	XDP_REDIRECT = 4,
-};
-
-struct xdp_md {
-	__u32 data;
-	__u32 data_end;
-	__u32 data_meta;
-	__u32 ingress_ifindex;
-	__u32 rx_queue_index;
-	__u32 egress_ifindex;
-};
-
 typedef __u16 __sum16;
-
-#define ETH_P_IP 0x0800
 
 struct ethhdr {
 	unsigned char h_dest[6];

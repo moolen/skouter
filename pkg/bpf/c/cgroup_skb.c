@@ -281,9 +281,8 @@ int egress_ip_allowed(__u32 key, __u32 daddr) {
     return TC_ALLOW;
   }
   __u8 *allowed = bpf_map_lookup_elem(inner_map, &daddr);
-  if (allowed == NULL) {
+  if (allowed == NULL || *allowed != TC_ALLOW) {
     metrics_inc(METRICS_EGRESS_BLOCKED);
-    bpf_printk("no value for ip %lu in inner map", daddr);
 
     if (is_audit_mode() == 1) {
       metrics_inc_blocked_addr(daddr);
@@ -291,20 +290,8 @@ int egress_ip_allowed(__u32 key, __u32 daddr) {
     }
     return TC_BLOCK;
   }
-  // block
-  if (*allowed == TC_BLOCK) {
-    metrics_inc(METRICS_EGRESS_BLOCKED);
-    if (is_audit_mode() == 1) {
-      metrics_inc_blocked_addr(daddr);
-      return TC_ALLOW;
-    }
-    return TC_BLOCK;
-  }
-  // allow
-  else if (*allowed == TC_ALLOW) {
-    metrics_inc(METRICS_EGRESS_ALLOWED);
-    return TC_ALLOW;
-  }
+
+  metrics_inc(METRICS_EGRESS_ALLOWED);
   return TC_ALLOW;
 }
 
