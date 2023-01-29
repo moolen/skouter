@@ -390,7 +390,7 @@ func (c *Controller) runDNSReader() {
 		var msg dns.Msg
 		err = msg.Unpack(event.Pkt[:event.Len])
 		if err != nil {
-			dnsParseError.WithLabelValues(strconv.FormatInt(int64(event.Key), 10)).Inc()
+			dnsParseError.WithLabelValues(c.nodeName, strconv.FormatInt(int64(event.Key), 10)).Inc()
 			c.log.Errorf("unable to unpack dns: ev: len=%d key=%s %#v %s", event.Len, keyToIP(event.Key), event.Pkt, err)
 			continue
 		}
@@ -468,7 +468,7 @@ func (c *Controller) tryAllowAddress(hosts []string, ips []net.IP, key uint32) e
 
 	if !allowedByHost && !allowedByWildcard {
 		for _, host := range hosts {
-			lookupForbiddenHostname.WithLabelValues(strconv.FormatUint(uint64(key), 10), host).Inc()
+			lookupForbiddenHostname.WithLabelValues(c.nodeName, strconv.FormatUint(uint64(key), 10), host).Inc()
 		}
 		return fmt.Errorf("key=%s tried to access unallowed host: %s", keyToIP(key), hosts[0])
 	}
