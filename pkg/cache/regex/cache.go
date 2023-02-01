@@ -1,4 +1,4 @@
-package wildcard
+package regex
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 
 const (
 	MaxKeys         = 8192
-	DefaultTTL      = time.Minute * 5
 	StorageFilename = "wildcards.json"
 )
 

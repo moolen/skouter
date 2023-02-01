@@ -83,14 +83,14 @@ func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 
 	for key, lblValues := range metrics {
 		var val uint32
-		err := cc.controller.metricsMap.Lookup(key, &val)
+		err := cc.controller.bpf.MetricsMap.Lookup(key, &val)
 		if err != nil && err != ebpf.ErrKeyNotExist {
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(packetsProcessed, prometheus.CounterValue, float64(val), lblValues...)
 	}
 
-	it := cc.controller.metricsBlockedAddr.Iterate()
+	it := cc.controller.bpf.MetricsBlockedAddr.Iterate()
 	var addr uint32
 	var count uint32
 	for it.Next(&addr, &count) {

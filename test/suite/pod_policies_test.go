@@ -197,7 +197,7 @@ var _ = Describe("pod egress policies", Label("pod"), func() {
 			Eventually(func() error {
 				_, err = ExecCmd(clientSet, restConfig, uid, "default", test, "", testTimeout)
 				return err
-			}).WithTimeout(testTimeout).Should(HaveOccurred())
+			}).WithTimeout(testTimeout).WithPolling(time.Second).Should(HaveOccurred())
 		}
 	})
 

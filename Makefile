@@ -28,7 +28,7 @@ docker.build:
 	docker build -t $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG) .
 
 run: build
-	sudo -E ./bin/skouter --kubeconfig ~/.kube/config --loglevel debug --node-name minikube --cgroupfs /sys/fs/cgroup
+	sudo -E ./bin/skouter --kubeconfig ~/.kube/config --loglevel debug --node-name kind-worker2 --cgroupfs /sys/fs/cgroup --bpffs /sys/fs/bpf
 
 lint.check: ## Check install of golanci-lint
 	@if ! golangci-lint --version > /dev/null 2>&1; then \

@@ -15,7 +15,7 @@
 package cmd
 
 import (
-	"github.com/moolen/skouter/pkg/bpf"
+	bpf "github.com/moolen/skouter/pkg/controller"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )

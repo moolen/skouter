@@ -3,6 +3,7 @@ package cache
 import (
 	"net"
 	"strings"
+	"time"
 
 	"github.com/moolen/skouter/pkg/util"
 )
@@ -29,7 +30,7 @@ func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 	return data
 }
 
-func (c *Cache) SetMany(hostnames []string, addrs []net.IP) {
+func (c *Cache) SetMany(hostnames []string, addrs []net.IP, ttl time.Duration) {
 	data := make(map[uint32]struct{})
 	for _, addr := range addrs {
 		data[util.IPToUint(addr)] = struct{}{}
@@ -37,7 +38,7 @@ func (c *Cache) SetMany(hostnames []string, addrs []net.IP) {
 
 	for _, hostname := range hostnames {
 		hostname = normalizeHostname(hostname)
-		c.hostnameData.Set(hostname, data, DefaultTTL)
+		c.hostnameData.Set(hostname, data, ttl)
 	}
 }
 

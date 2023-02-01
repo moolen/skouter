@@ -5,18 +5,19 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/jackpal/gateway"
 	v1alpha1 "github.com/moolen/skouter/api"
-	dnscache "github.com/moolen/skouter/pkg/dns_cache"
-	"github.com/moolen/skouter/pkg/wildcard"
+	"github.com/moolen/skouter/pkg/bpf"
+	dnscache "github.com/moolen/skouter/pkg/cache/dns"
+	"github.com/moolen/skouter/pkg/cache/regex"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,9 +29,6 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event -type cidr_config_val bpf ./c/cgroup_skb.c -- -I./c/headers
 type Controller struct {
 	ctx context.Context
 
@@ -40,6 +38,7 @@ type Controller struct {
 
 	log        logrus.FieldLogger
 	reg        *prometheus.Registry
+	bpf        *bpf.LoadedCollection
 	auditMode  bool
 	nodeName   string
 	nodeIP     string
@@ -50,36 +49,18 @@ type Controller struct {
 	gwIfAddr   uint32
 	allowedDNS []uint32
 	dnsCache   *dnscache.Cache
-	reCache    *wildcard.Cache
+	reStore    *regex.Cache
 
 	idxMu *sync.RWMutex
 	// hostIdx is a map: hostname => map[pod-key]=>allowed-state
 	hostIdx HostIndex
+	// ruleIdx is a map addr => map[re-rule]=>*regexp.Regexp
 	ruleIdx RuleIndex
+	// addrIdx is a map pod-key => map[upstream-ip]=>allowed-state
 	addrIdx AddressIndex
+	// cidrIdx is a map pod-key => map[cidr-string] => net.IPNet CIDR
 	cidrIdx CIDRIndex
-
-	ingressProg *ebpf.Program
-	egressProg  *ebpf.Program
-
-	egressConfig       *ebpf.Map
-	egressCIDRConfig   *ebpf.Map
-	dnsConfig          *ebpf.Map
-	eventsMap          *ebpf.Map
-	metricsMap         *ebpf.Map
-	metricsBlockedAddr *ebpf.Map
-
-	ingressLink link.Link
-	egressLink  link.Link
 }
-
-type AddressIndex map[uint32]map[uint32]uint32
-
-type CIDRIndex map[uint32]map[string]*net.IPNet
-
-type HostIndex map[string]map[uint32]struct{}
-
-type RuleIndex map[uint32]map[string]*regexp.Regexp
 
 var (
 	// Action used by the bpf program
@@ -87,25 +68,8 @@ var (
 	// TODO: pull these settings from bytecode so there's no need to sync
 	ActionAllow = uint32(1)
 
+	// Name of the directory in /sys/fs/bpf that holds the pinned maps/progs
 	BPFMountDir = "skouter"
-
-	// inner map must be in sync with cgroup_skb.c
-	innerIPMap = &ebpf.MapSpec{
-		Name:       "pod_egress_config",
-		Type:       ebpf.Hash,
-		KeySize:    4, // 4 bytes for u32
-		ValueSize:  4, // 4 bytes for u32
-		MaxEntries: 4096,
-	}
-
-	// inner cidr must be in sync with cgroup_skb.c
-	innerCIDRMap = &ebpf.MapSpec{
-		Name:       "pod_egress_cidr_config",
-		Type:       ebpf.Hash,
-		KeySize:    4, // 4 bytes for u32
-		ValueSize:  8, // 8 bytes for u64 IPv4 + mask
-		MaxEntries: 256,
-	}
 )
 
 func New(
@@ -147,9 +111,9 @@ func New(
 
 	log.Infof("discovered gateway=%s if=%s", gwAddr.String(), gwIfAddr.String())
 
-	wc := wildcard.New(log, cacheStoragePath)
-	wc.Restore()
-	go wc.Autosave(ctx, time.Second*15)
+	reCache := regex.New(log, cacheStoragePath)
+	reCache.Restore()
+	go reCache.Autosave(ctx, time.Second*15)
 
 	clientSet, err := kubernetes.NewForConfig(k8sConfig)
 	if err != nil {
@@ -176,7 +140,7 @@ func New(
 		gwAddr:     binary.LittleEndian.Uint32(gwAddr.To4()),
 		gwIfAddr:   binary.LittleEndian.Uint32(gwIfAddr.To4()),
 		dnsCache:   dnscache.New(log),
-		reCache:    wc,
+		reStore:    reCache,
 		nodeName:   nodeName,
 		nodeIP:     nodeIP,
 		auditMode:  auditMode,
@@ -220,11 +184,14 @@ func (c *Controller) Run() error {
 	// set the upstream dns server
 	c.log.Infof("setting allowed dns: %d", c.allowedDNS)
 	for _, addr := range c.allowedDNS {
-		err := c.dnsConfig.Put(addr, uint32(1)) // value isn't used
+		err := c.bpf.DNSConfig.Put(addr, ActionAllow) // value isn't used
 		if err != nil {
 			return fmt.Errorf("unable to set dns config: %w", err)
 		}
 	}
+
+	// start to listen for updates
+	go c.readUpdates()
 
 	// pre-warm DNS cache and allow-list IPs
 	err = c.preWarm()
@@ -233,23 +200,65 @@ func (c *Controller) Run() error {
 	}
 	go c.runDNSReader()
 
+	c.log.Debugf("attaching progs to %s", c.cgroupfs)
 	// attach the program to cgroup
-	err = c.attach()
-	if err != nil {
-		return fmt.Errorf("unable to attach to cgroup2: %s", err.Error())
-	}
+	return c.bpf.Attach(c.cgroupfs)
+}
 
+func (c *Controller) readUpdates() {
+	update := debounceCallable(time.Second*5, func() {
+		err := c.updateConfig()
+		if err != nil {
+			c.log.Error(err)
+		}
+	})
 	for {
 		select {
 		case <-c.ctx.Done():
-			return nil
+			return
 		case <-c.updateChan:
-			err := c.updateConfig()
-			if err != nil {
-				c.log.Error(err)
-			}
+			update()
 		}
 	}
+}
+
+func debounceCallable(interval time.Duration, f func()) func() {
+	var timer *time.Timer
+	var lastInvocation time.Time
+
+	return func() {
+		if timer != nil {
+			timer.Stop()
+		}
+		// first call or call after longer period of time is immediate
+		if time.Since(lastInvocation) > interval {
+			f()
+			lastInvocation = time.Now()
+			return
+		}
+
+		timer = time.AfterFunc(interval, func() {
+			f()
+			lastInvocation = time.Now()
+		})
+	}
+}
+
+func (c *Controller) loadBPF() error {
+	pinPath := filepath.Join(c.bpffs, BPFMountDir)
+	err := os.MkdirAll(pinPath, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create bpf fs subpath: %+v", err)
+	}
+
+	coll, err := bpf.Load(pinPath, c.auditMode)
+	if err != nil {
+		return fmt.Errorf("failed to load bpf maps: %+v", err)
+	}
+
+	c.bpf = coll
+
+	return err
 }
 
 func (c *Controller) startPodWatcher() error {
@@ -311,9 +320,10 @@ func (c *Controller) preWarm() error {
 	}
 
 	c.idxMu.RLock()
-	defer c.idxMu.RUnlock()
+	hostIdx := c.hostIdx.Clone()
+	c.idxMu.RUnlock()
 
-	for host, podKeys := range c.hostIdx {
+	for host, podKeys := range hostIdx {
 		addrs := c.dnsCache.LookupIP(host)
 		for _, addr := range addrs {
 			hostAddr := addr.To4()
@@ -334,18 +344,16 @@ func (c *Controller) preWarm() error {
 }
 
 func (c *Controller) updateConfig() error {
+	c.log.Debugf("updating config")
 	start := time.Now()
-	defer func() {
-		reconcileMaps.With(nil).Observe(time.Since(start).Seconds())
-		c.log.Debugf("reconcile map: %f seconds", time.Since(start).Seconds())
-	}()
+	defer reconcileMaps.With(nil).Observe(time.Since(start).Seconds())
 	if err := c.updateIndices(); err != nil {
 		return err
 	}
 
 	// reconcile bpf maps
 	wcstart := time.Now()
-	if err := c.reCache.ReconcileIndex(c.flattenRules()); err != nil {
+	if err := c.reStore.ReconcileIndex(c.flattenRules()); err != nil {
 		return err
 	}
 	reconcileRegexpCache.With(nil).Observe(time.Since(wcstart).Seconds())
@@ -357,10 +365,7 @@ func (c *Controller) updateConfig() error {
 
 func (c *Controller) updateIndices() error {
 	start := time.Now()
-	defer func() {
-		updateIndices.With(nil).Observe(time.Since(start).Seconds())
-		c.log.Debugf("update indices: %f seconds", time.Since(start).Seconds())
-	}()
+	defer updateIndices.With(nil).Observe(time.Since(start).Seconds())
 	addrIdx := make(AddressIndex)
 	cidrIdx := make(CIDRIndex)
 	hostIdx := make(HostIndex)
@@ -522,44 +527,26 @@ func (c *Controller) updateIndices() error {
 				hostIdx[hostname][key] = struct{}{}
 				mergeHostMap(addrIdx[key], c.dnsCache.Lookup(hostname))
 			}
-			c.log.Debugf("got pod %s/%s=>%s => %#v", pod.Namespace, pod.Name, pod.Status.PodIP, addrIdx[key])
 		}
 	}
 
 	c.idxMu.Lock()
-	defer c.idxMu.Unlock()
 	c.addrIdx = addrIdx
 	c.cidrIdx = cidrIdx
 	c.hostIdx = hostIdx
 	c.ruleIdx = ruleIdx
-
+	c.idxMu.Unlock()
 	return nil
 }
 
 func (c *Controller) Close() {
 	c.log.Debug("closing bpf resources")
-	c.egressProg.Close()
-	c.ingressProg.Close()
-	c.ingressLink.Close()
-	c.egressLink.Close()
 
 	// Flush wildcard cache to disk
 	// so it can be restored
-	err := c.reCache.Save()
+	err := c.reStore.Save()
 	if err != nil {
 		c.log.Error(err)
 	}
-
-	// uncomment to clean up map state
-	// c.eventsMap.Unpin()
-	// c.egressConfig.Unpin()
-	// c.dnsConfig.Unpin()
-	// c.metricsMap.Unpin()
-	// c.metricsBlockedAddr.Unpin()
-
-	c.eventsMap.Close()
-	c.egressConfig.Close()
-	c.dnsConfig.Close()
-	c.metricsMap.Close()
-	c.metricsBlockedAddr.Close()
+	c.bpf.Close()
 }

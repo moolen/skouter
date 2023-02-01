@@ -1,4 +1,4 @@
-package wildcard
+package regex
 
 import (
 	"encoding/json"
@@ -84,7 +84,6 @@ func (c *Cache) Save() error {
 	}
 
 	cacheFile := filepath.Join(c.storagePath, StorageFilename)
-	c.log.Debugf("writing wildcard index to %s", cacheFile)
 	err = os.MkdirAll(c.storagePath, os.ModePerm)
 	if err != nil {
 		return err

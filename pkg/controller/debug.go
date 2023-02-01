@@ -5,17 +5,17 @@ import (
 	"path/filepath"
 
 	"github.com/cilium/ebpf"
+	"github.com/moolen/skouter/pkg/bpf"
+	"github.com/moolen/skouter/pkg/cache/regex"
 	"github.com/moolen/skouter/pkg/util"
-	"github.com/moolen/skouter/pkg/wildcard"
 	"github.com/sirupsen/logrus"
 )
 
 func DumpConfig(log logrus.FieldLogger, bpffs, storagePath string) error {
-
-	log.Debugf("dumping wildcard cache from %s", storagePath)
-	wc := wildcard.New(log, storagePath)
-	wc.Restore()
-	wc.DumpMap()
+	log.Debugf("dumping regex cache from %s", storagePath)
+	reCache := regex.New(log, storagePath)
+	reCache.Restore()
+	reCache.DumpMap()
 
 	egressConfigPath := filepath.Join(bpffs, BPFMountDir, "egress_config")
 	egressCidrConfigPath := filepath.Join(bpffs, BPFMountDir, "egress_cidr_config")
@@ -64,7 +64,7 @@ func DumpConfig(log logrus.FieldLogger, bpffs, storagePath string) error {
 		}
 		iit := m.Iterate()
 		var innerKey uint32
-		var innerVal bpfCidrConfigVal
+		var innerVal bpf.CidrConfigVal
 		for iit.Next(&innerKey, &innerVal) {
 			if innerVal.Addr != 0 && innerVal.Mask != 0 {
 				log.Debugf("[%s] %d=>%#v", keyToIP(key), innerKey, util.ToNetMask(innerVal.Addr, innerVal.Mask))

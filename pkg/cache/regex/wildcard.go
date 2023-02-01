@@ -1,4 +1,4 @@
-package wildcard
+package regex
 
 import (
 	"encoding/json"
@@ -76,7 +76,7 @@ func (c *Cache) ReconcileIndex(desiredWildcards map[string]struct{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debugf("reconciling wc idx: %#v | %#v", c.wildcardData.Keys(), c.wildcardIdx.Keys())
+	c.log.Debugf("reconciling re cache: %#v | %#v with %#v", c.wildcardData.Keys(), c.wildcardIdx.Keys(), desiredWildcards)
 	for _, wildcard := range c.wildcardData.Keys() {
 		// case: rule still exists: ignore
 		if _, ok := desiredWildcards[wildcard]; ok {

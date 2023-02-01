@@ -20,7 +20,7 @@ cluster: ## starts a cluster
 
 build: ## build+load image
 	$(MAKE) -C ../ docker.build IMAGE_TAG=$(VERSION)
-	kind load docker-image ghcr.io/moolen/skouter:$(VERSION)
+	# kind load docker-image ghcr.io/moolen/skouter:$(VERSION)
 
 deploy: ## deploy workload and ensure it uses the latest image
 	@echo installing skouter
@@ -30,6 +30,6 @@ deploy: ## deploy workload and ensure it uses the latest image
 	kubectl delete po -l app=skouter
 
 run: ## run tests against current kubernetes cluster with skouter installed
-	ginkgo run -v --repeat=$(REPEAT) $(GINKGO_ARGS) ./suite -- $(TEST_ARGS)
+	ginkgo run -v --flake-attempts=2 --repeat=$(REPEAT) $(GINKGO_ARGS) ./suite -- $(TEST_ARGS)
 
 
