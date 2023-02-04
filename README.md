@@ -35,13 +35,8 @@ There are other implemenatation approaches for egress filtering:
 
 ### Limitations and edge cases
 
-The initial TCP SYN may be dropped if the userspace DNS response parsing is slow.
-This is quite likely, however only the first TCP SYN is affected, subsequent packets are not dropped.
-The kernel retries the initial SYN after 1s.
-
-~~I'd like to get rid of parsing DNS responses in userspace and instead implement a stripped-down eBPF DNS parser that works just for this use-case. Tho getting that to work requires a lot of massaging the code for the eBPF verifier.~~ This is completely nuts.
-
-There are [some papers](https://www.nlnetlabs.nl/downloads/publications/DNS-augmentation-with-eBPF.pdf) and [talks](https://www.nanog.org/news-stories/nanog-tv/nanog-81-webcast/xdperiments-tinkering-with-dns-and-xdp/) that touch that topic including source code that may help anyone that picks this up.
+* DNS over TCP is not supported / not possible
+* may interfere with other eBPF-based tools (e.g. cilium)
 
 Others:
 
