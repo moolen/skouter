@@ -1,4 +1,4 @@
-package bpf
+package controller
 
 import (
 	"fmt"
@@ -6,14 +6,13 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/moolen/skouter/pkg/bpf"
-	"github.com/moolen/skouter/pkg/cache/regex"
+	"github.com/moolen/skouter/pkg/cache/fqdn"
 	"github.com/moolen/skouter/pkg/util"
-	"github.com/sirupsen/logrus"
 )
 
-func DumpConfig(log logrus.FieldLogger, bpffs, storagePath string) error {
-	log.Debugf("dumping regex cache from %s", storagePath)
-	reCache := regex.New(log, storagePath)
+func DumpConfig(bpffs, storagePath string) error {
+	logger.Info("dumping regex cache", "path", storagePath)
+	reCache := fqdn.New(storagePath)
 	reCache.Restore()
 	reCache.DumpMap()
 
@@ -34,32 +33,32 @@ func DumpConfig(log logrus.FieldLogger, bpffs, storagePath string) error {
 		return fmt.Errorf("unable to load egress cidr config: %w", err)
 	}
 
-	log.Debugf("dumping egress config from %s", egressConfigPath)
+	logger.Info("dumping egress config from", "path", egressConfigPath)
 	it := egressConfig.Iterate()
 	var key uint32
 	var innerID ebpf.MapID
 	for it.Next(&key, &innerID) {
-		log.Debugf("egress config key=%s", keyToIP(key))
+		logger.Info("egress config", "key", keyToIP(key))
 		m, err := ebpf.NewMapFromID(innerID)
 		if err != nil {
-			log.Warn(err)
+			logger.Error(err, "could not create map from inner id")
 			continue
 		}
 		iit := m.Iterate()
 		var innerKey uint32
 		var innerVal uint32
 		for iit.Next(&innerKey, &innerVal) {
-			log.Debugf("[%s] %s=>%d", keyToIP(key), keyToIP(innerKey), innerVal)
+			logger.Info("", "key", keyToIP(key), "inner-key", keyToIP(innerKey), "val", innerVal)
 		}
 	}
 
-	log.Debugf("dumping egress cidr config from %s", egressCidrConfigPath)
+	logger.Info("dumping egress cidr config from", "path", egressCidrConfigPath)
 	it = egressCIDRConfig.Iterate()
 	for it.Next(&key, &innerID) {
-		log.Debugf("egress cidr config key=%s", keyToIP(key))
+		logger.Info("egress cidr config key=%s", keyToIP(key))
 		m, err := ebpf.NewMapFromID(innerID)
 		if err != nil {
-			log.Warn(err)
+			logger.Error(err, "unable to create bpf map from id", "id", innerID)
 			continue
 		}
 		iit := m.Iterate()
@@ -67,7 +66,7 @@ func DumpConfig(log logrus.FieldLogger, bpffs, storagePath string) error {
 		var innerVal bpf.CidrConfigVal
 		for iit.Next(&innerKey, &innerVal) {
 			if innerVal.Addr != 0 && innerVal.Mask != 0 {
-				log.Debugf("[%s] %d=>%#v", keyToIP(key), innerKey, util.ToNetMask(innerVal.Addr, innerVal.Mask))
+				logger.Info("", "key", keyToIP(key), "inner-key", innerKey, "val", util.ToNetMask(innerVal.Addr, innerVal.Mask))
 			}
 		}
 	}

@@ -1,4 +1,4 @@
-package regex
+package fqdn
 
 import (
 	"context"
@@ -6,16 +6,17 @@ import (
 	"time"
 
 	cache "github.com/go-pkgz/expirable-cache/v2"
-	"github.com/sirupsen/logrus"
+	"github.com/moolen/skouter/pkg/log"
 )
 
 const (
 	MaxKeys         = 8192
-	StorageFilename = "wildcards.json"
+	StorageFilename = "fqdn.json"
 )
 
+var logger = log.DefaultLogger.WithName("fqdncache")
+
 type Cache struct {
-	log         logrus.FieldLogger
 	storagePath string
 
 	// we need to synchronize both caches
@@ -25,23 +26,22 @@ type Cache struct {
 	// Stores a hierarchy of hostnames and maps them to an address
 	//
 	// *.foo.example.com -> map[actual.foo.example.com] => address
-	wildcardData cache.Cache[string, map[string]map[uint32]uint32]
+	fqdnData cache.Cache[string, map[string]map[uint32]uint32]
 
 	// Stores an index of ips that map to hostnames
 	// This allows us to lookup existing IPs from bpf maps
 	// to see if they're still valid or need to be dropped
-	wildcardIdx cache.Cache[uint32, map[string]map[string]uint32]
+	fqdnIdx cache.Cache[uint32, map[string]map[string]uint32]
 }
 
-func New(log logrus.FieldLogger, storagePath string) *Cache {
+func New(storagePath string) *Cache {
 	c := &Cache{
-		log:         log,
 		storagePath: storagePath,
 		mu:          &sync.Mutex{},
-		wildcardData: cache.NewCache[string, map[string]map[uint32]uint32]().
+		fqdnData: cache.NewCache[string, map[string]map[uint32]uint32]().
 			WithMaxKeys(MaxKeys).
 			WithLRU(),
-		wildcardIdx: cache.NewCache[uint32, map[string]map[string]uint32]().
+		fqdnIdx: cache.NewCache[uint32, map[string]map[string]uint32]().
 			WithMaxKeys(MaxKeys).
 			WithLRU(),
 	}
@@ -59,7 +59,7 @@ func (c *Cache) Autosave(ctx context.Context, d time.Duration) {
 		case <-tt.C:
 			err := c.Save()
 			if err != nil {
-				c.log.Errorf("unable to save wildcard cache: %s", err.Error())
+				logger.Error(err, "unable to save fqdn cache: %s")
 			}
 		}
 	}

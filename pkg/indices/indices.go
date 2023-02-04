@@ -1,4 +1,4 @@
-package bpf
+package indices
 
 import (
 	"bytes"

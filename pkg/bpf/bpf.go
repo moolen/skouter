@@ -10,10 +10,8 @@ type CidrConfigVal bpfCidrConfigVal
 type Event bpfEvent
 
 type LoadedCollection struct {
-	EgressProg  *ebpf.Program
-	EgressLink  link.Link
-	IngressProg *ebpf.Program
-	IngressLink link.Link
+	EgressProg *ebpf.Program
+	EgressLink link.Link
 
 	EgressConfig       *EgressConfig
 	EgressCIDRConfig   *EgressCIDRConfig
@@ -59,8 +57,7 @@ func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
 		return nil, err
 	}
 	return &LoadedCollection{
-		EgressProg:  objs.bpfPrograms.Egress,
-		IngressProg: objs.bpfPrograms.CapturePackets,
+		EgressProg: objs.bpfPrograms.Egress,
 
 		EgressConfig:       &EgressConfig{objs.bpfMaps.EgressConfig},
 		EgressCIDRConfig:   &EgressCIDRConfig{objs.bpfMaps.EgressCidrConfig},
@@ -73,14 +70,6 @@ func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
 
 func (coll *LoadedCollection) Attach(cgroupfs string) error {
 	var err error
-	coll.IngressLink, err = link.AttachCgroup(link.CgroupOptions{
-		Path:    cgroupfs,
-		Attach:  ebpf.AttachCGroupInetIngress,
-		Program: coll.IngressProg,
-	})
-	if err != nil {
-		return err
-	}
 	coll.EgressLink, err = link.AttachCgroup(link.CgroupOptions{
 		Path:    cgroupfs,
 		Attach:  ebpf.AttachCGroupInetEgress,
@@ -90,8 +79,6 @@ func (coll *LoadedCollection) Attach(cgroupfs string) error {
 }
 
 func (coll *LoadedCollection) Close() error {
-	coll.IngressProg.Close()
-	coll.IngressLink.Close()
 	coll.EgressProg.Close()
 	coll.EgressLink.Close()
 

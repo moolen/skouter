@@ -16,7 +16,6 @@ package cmd
 
 import (
 	bpf "github.com/moolen/skouter/pkg/controller"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +25,9 @@ var debugCmd = &cobra.Command{
 	Short: "",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		log.SetLevel(logrus.DebugLevel)
-		log.Debugf("debug called")
-		err := bpf.DumpConfig(log, bpffs, cacheStoragePath)
+		err := bpf.DumpConfig(bpffs, cacheStoragePath)
 		if err != nil {
-			log.Fatal(err)
+			logger.Error(err, "unable to dump config")
 		}
 	},
 }

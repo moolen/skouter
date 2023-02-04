@@ -1,4 +1,4 @@
-package bpf
+package controller
 
 import (
 	"bytes"
@@ -24,6 +24,7 @@ func keyToIP(addr uint32) string {
 	_ = binary.Write(&buf, binary.LittleEndian, addr)
 	return net.IP(buf.Bytes()).To4().String()
 }
+
 func keyForAddr(addr net.IP) uint32 {
 	return binary.LittleEndian.Uint32(addr.To4())
 }

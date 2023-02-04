@@ -125,7 +125,7 @@ var _ = Describe("pod egress policies", Label("pod"), func() {
 		Eventually(func() string {
 			out, _ := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
 			return out
-		}).WithTimeout(testTimeout).WithPolling(time.Second).Should(ContainSubstring("download timed out"))
+		}).WithTimeout(testTimeout).WithPolling(time.Second).Should(ContainSubstring("bad address"))
 	})
 
 	It("allow pod egress after egress cidr has been updated", func() {

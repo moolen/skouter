@@ -1,4 +1,4 @@
-package bpf
+package controller
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/moolen/skouter/pkg/bpf"
+	"github.com/moolen/skouter/pkg/metrics"
 	"github.com/moolen/skouter/pkg/util"
 )
 
@@ -14,7 +15,7 @@ import (
 // and removes orphaned keys
 func (c *Controller) reconcileAddrMap() error {
 	start := time.Now()
-	defer reconcileAddrMap.With(nil).Observe(time.Since(start).Seconds())
+	defer metrics.ReconcileAddrMap.With(nil).Observe(time.Since(start).Seconds())
 	c.idxMu.RLock()
 	defer c.idxMu.RUnlock()
 
@@ -32,17 +33,17 @@ func (c *Controller) reconcileAddrMap() error {
 	for it.Next(&key, &innerID) {
 		// case: state exists in ebpf where it shouldn't
 		if _, ok := c.addrIdx[key]; !ok {
-			c.log.Debugf("reconciling egress, removing key=%s", keyToIP(key))
+			logger.Info("reconciling egress, removing key", "key", keyToIP(key))
 			err := c.bpf.EgressConfig.Delete(key)
 			if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-				c.log.Warnf("unable to reconcile pod key=%s %s", keyToIP(key), err.Error())
+				logger.Error(err, "unable to reconcile pod", "key", keyToIP(key))
 			}
 			continue
 		}
 
 		m, err := ebpf.NewMapFromID(innerID)
 		if err != nil {
-			c.log.Warnf("unable to get map from inner id key=%s id=%d: %s", keyToIP(key), innerID, err.Error())
+			logger.Error(err, "unable to get map from inner id", "key", keyToIP(key), "inner-map-id", innerID)
 			continue
 		}
 		iit := m.Iterate()
@@ -52,13 +53,13 @@ func (c *Controller) reconcileAddrMap() error {
 			// case: state exists in bpf map where it shouldn't
 			if _, ok := c.addrIdx[key][destAddr]; !ok {
 				// make sure this is not a regexp
-				if c.reStore.HasAddr(destAddr) {
+				if c.fqdnStore.HasAddr(destAddr) {
 					continue
 				}
-				c.log.Debugf("reconciling egress ips, removing key=%s ip=%s", keyToIP(key), keyToIP(destAddr))
+				logger.Info("reconciling egress ips, removing key", "key", keyToIP(key), "dest-addr", keyToIP(destAddr))
 				err = m.Delete(destAddr)
 				if err != nil && errors.Is(err, ebpf.ErrKeyNotExist) {
-					c.log.Warnf("unable to delete key=%s dest=%s", keyToIP(key), keyToIP(destAddr))
+					logger.Error(err, "unable to delete key", "key", keyToIP(key), "dest-addr", keyToIP(destAddr))
 				}
 				continue
 			}
@@ -71,7 +72,7 @@ func (c *Controller) reconcileAddrMap() error {
 // and removes orphaned pods
 func (c *Controller) reconcileCIDRMap() error {
 	start := time.Now()
-	defer reconcileCIDRMap.With(nil).Observe(time.Since(start).Seconds())
+	defer metrics.ReconcileCIDRMap.With(nil).Observe(time.Since(start).Seconds())
 	c.idxMu.RLock()
 	defer c.idxMu.RUnlock()
 
@@ -90,17 +91,17 @@ func (c *Controller) reconcileCIDRMap() error {
 	for it.Next(&key, &innerID) {
 		// case: state exists in ebpf where it shouldn't
 		if _, ok := c.cidrIdx[key]; !ok {
-			c.log.Debugf("reconciling egress cidr, removing key=%s", keyToIP(key))
+			logger.Info("reconciling egress cidr, removing key", "key", keyToIP(key))
 			err := c.bpf.EgressCIDRConfig.Delete(key)
 			if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-				c.log.Warnf("unable to reconcile pod cidr key=%s %s", keyToIP(key), err.Error())
+				logger.Error(err, "unable to reconcile pod cidr", "key", keyToIP(key))
 			}
 			continue
 		}
 
 		m, err := ebpf.NewMapFromID(innerID)
 		if err != nil {
-			c.log.Warnf("unable to get cidr map from inner id key=%s id=%d: %s", keyToIP(key), innerID, err.Error())
+			logger.Error(err, "unable to get cidr map from inner id", "key", keyToIP(key), "inner-map-id", innerID)
 			continue
 		}
 		iit := m.Iterate()
@@ -112,10 +113,10 @@ func (c *Controller) reconcileCIDRMap() error {
 				i >= uint32(len(c.cidrIdx[key])+1) && // we might have stale values at the end
 				cidr.Addr != 0 &&
 				cidr.Mask != 0 {
-				c.log.Debugf("reconciling egress CIDRs, removing key=%s cidr=%s", keyToIP(key), util.ToNetMask(cidr.Addr, cidr.Mask).String())
+				logger.Info("reconciling egress CIDRs, removing key", "key", keyToIP(key), "cidr", util.ToNetMask(cidr.Addr, cidr.Mask).String())
 				err = m.Delete(i)
-				if err != nil && errors.Is(err, ebpf.ErrKeyNotExist) {
-					c.log.Warnf("unable to delete key=%s cidr=%s", keyToIP(key), util.ToNetMask(cidr.Addr, cidr.Mask).String())
+				if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+					logger.Error(err, "unable to delete key", "key", keyToIP(key), "cidr", util.ToNetMask(cidr.Addr, cidr.Mask).String())
 				}
 				continue
 			}

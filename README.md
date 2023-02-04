@@ -62,6 +62,7 @@ Others:
 - [x] support IP cidr ranges
 - [x] audit mode (allow egress by default but log/store traffic patterns)
 - [x] clean up deleted IPs
+- [x] drop initial DNS answer and respond from userspace
 - [x] ~~lift limitation of 256 adresses per node~~
 - [ ] consider pivoting into making this a central egress infrastructure by ip forwarding ip packets while still supporting kubernetes integration
 

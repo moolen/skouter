@@ -48,6 +48,9 @@ spec:
         imagePullPolicy: IfNotPresent
         securityContext:
           privileged: true
+        # todo: set capabilities
+        # - CAP_NET_RAW
+        # - CAP_BPF
         args:
           - "--loglevel"
           - "debug"

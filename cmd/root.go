@@ -14,8 +14,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	bpf "github.com/moolen/skouter/pkg/controller"
-	"github.com/sirupsen/logrus"
+	"github.com/moolen/skouter/pkg/controller"
+	"github.com/moolen/skouter/pkg/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -25,7 +25,7 @@ import (
 
 var (
 	scheme = runtime.NewScheme()
-	log    *logrus.Logger
+	logger = log.DefaultLogger
 )
 
 func init() {
@@ -39,22 +39,15 @@ var rootCmd = &cobra.Command{
 	Short: "cloud-native egress firewall",
 	Long:  ``,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		log = logrus.New()
-		lvl, err := logrus.ParseLevel(logLevel)
-		if err != nil {
-			logrus.Fatalf("unable to parse loglevel: %s", err.Error())
-		}
-		log.SetLevel(lvl)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := ctrl.SetupSignalHandler()
-		log.Info("creating kubernetes client")
+		logger.Info("creating kubernetes client")
 		cfg := kubeConfig()
 
-		log.Info("launching egress resource controller manager")
+		logger.Info("launching egress resource controller manager")
 
-		reg := prometheus.NewRegistry()
-		bpfctrl, err := bpf.New(ctx,
+		bpfctrl, err := controller.New(ctx,
 			cfg,
 			cgroupfs,
 			bpffs,
@@ -62,25 +55,25 @@ var rootCmd = &cobra.Command{
 			nodeIP,
 			cacheStoragePath,
 			allowedDNS,
-			auditMode,
-			log,
-			reg)
+			auditMode)
 		if err != nil {
-			log.Fatal(err)
+			logger.Error(err, "unable to create controller")
+			panic(err)
 		}
 		defer bpfctrl.Close()
-		log.Info("launching bpf controller")
+		logger.Info("launching bpf controller")
 		go func() {
 			err := bpfctrl.Run()
 			if err != nil {
-				log.Fatalf("bpf controller failed to run: %s", err.Error())
+				logger.Error(err, "bpf controller failed to run")
+				panic(err)
 			}
 		}()
-		http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+		http.Handle("/metrics", promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{}))
 		go func() {
 			err := http.ListenAndServe(":3000", nil)
 			if err != nil {
-				log.Error(err)
+				logger.Error(err, "unable to listen http")
 			}
 		}()
 
@@ -97,7 +90,7 @@ func kubeConfig() *rest.Config {
 		cfg, err = rest.InClusterConfig()
 	}
 	if err != nil {
-		log.Fatalf("unable to get in-cluster config: %s", err.Error())
+		logger.Error(err, "unable to get in-cluster config")
 	}
 	return cfg
 }

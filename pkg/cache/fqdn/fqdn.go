@@ -1,4 +1,4 @@
-package regex
+package fqdn
 
 import (
 	"encoding/json"
@@ -9,12 +9,12 @@ import (
 
 // Observe should be called to store a DNS response from a bunch of hosts/addrs.
 // It writes the observed hostnames / ip addresses to the internal cache
-func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
+func (c *Cache) Observe(fqdn string, hosts []string, addrs []net.IP) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var data map[string]map[uint32]uint32
 	var ok bool
-	data, ok = c.wildcardData.Get(wildcard)
+	data, ok = c.fqdnData.Get(fqdn)
 	if !ok {
 		data = make(map[string]map[uint32]uint32)
 	}
@@ -31,22 +31,22 @@ func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
 			addrMap[uintAddr] = uint32(1) // allow
 
 			data[hostname] = addrMap
-			c.wildcardData.Set(wildcard, data, 0)
+			c.fqdnData.Set(fqdn, data, 0)
 
 			// update idx
-			var wildcardMap map[string]map[string]uint32
-			wildcardMap, ok = c.wildcardIdx.Get(uintAddr)
+			var fqdnMap map[string]map[string]uint32
+			fqdnMap, ok = c.fqdnIdx.Get(uintAddr)
 			if !ok {
-				wildcardMap = make(map[string]map[string]uint32)
+				fqdnMap = make(map[string]map[string]uint32)
 			}
 			var hostMap map[string]uint32
-			hostMap, ok = wildcardMap[wildcard]
+			hostMap, ok = fqdnMap[fqdn]
 			if !ok {
 				hostMap = make(map[string]uint32)
 			}
 			hostMap[hostname] = uint32(1) // alow
-			wildcardMap[wildcard] = hostMap
-			c.wildcardIdx.Set(uintAddr, wildcardMap, 0)
+			fqdnMap[fqdn] = hostMap
+			c.fqdnIdx.Set(uintAddr, fqdnMap, 0)
 		}
 	}
 
@@ -57,56 +57,56 @@ func (c *Cache) Observe(wildcard string, hosts []string, addrs []net.IP) error {
 func (c *Cache) DumpMap() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for _, k := range c.wildcardData.Keys() {
-		data, _ := c.wildcardData.Get(k)
+	for _, k := range c.fqdnData.Keys() {
+		data, _ := c.fqdnData.Get(k)
 		datas, _ := json.Marshal(data)
-		c.log.Debugf("data[%s] => %s", k, string(datas))
+		logger.Info("fqdn data dump", "key", k, "value", string(datas))
 	}
 
-	for _, k := range c.wildcardIdx.Keys() {
-		data, _ := c.wildcardIdx.Get(k)
+	for _, k := range c.fqdnIdx.Keys() {
+		data, _ := c.fqdnIdx.Get(k)
 		datas, _ := json.Marshal(data)
-		c.log.Debugf("idx[%d] => %s", k, string(datas))
+		logger.Info("fqdn index dump", "key", k, "value", string(datas))
 	}
 }
 
 // Reconciles the internal state with the given ruleIdx.
 // This evicts IPs from both index and data caches.
-func (c *Cache) ReconcileIndex(desiredWildcards map[string]struct{}) error {
+func (c *Cache) ReconcileIndex(desiredFQDNs map[string]struct{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debugf("reconciling re cache: %#v | %#v with %#v", c.wildcardData.Keys(), c.wildcardIdx.Keys(), desiredWildcards)
-	for _, wildcard := range c.wildcardData.Keys() {
+	logger.Info("reconciling re cache", "data", c.fqdnData.Keys(), "index", c.fqdnIdx.Keys(), "desired-fqdns", desiredFQDNs)
+	for _, fqdn := range c.fqdnData.Keys() {
 		// case: rule still exists: ignore
-		if _, ok := desiredWildcards[wildcard]; ok {
+		if _, ok := desiredFQDNs[fqdn]; ok {
 			continue
 		}
 		// case: rule was removed: cleanup data + index
-		staleData, ok := c.wildcardData.Get(wildcard)
+		staleData, ok := c.fqdnData.Get(fqdn)
 		if !ok {
 			continue
 		}
-		c.log.Debugf("stale date: %#v", staleData)
+		logger.Info("stale data", "data", staleData)
 		// delete addr from index
 		for _, addrMap := range staleData {
 			for addr := range addrMap {
-				c.log.Debugf("checking idx: %#v", addr)
-				idxData, ok := c.wildcardIdx.Get(addr)
+				logger.Info("checking idx", "addr", addr)
+				idxData, ok := c.fqdnIdx.Get(addr)
 				if !ok {
 					continue
 				}
-				delete(idxData, wildcard)
+				delete(idxData, fqdn)
 				if len(idxData) == 0 {
-					c.log.Debugf("deleting idx key: %#v", addr)
-					c.wildcardIdx.Invalidate(addr)
+					logger.Info("deleting idx", "key", addr)
+					c.fqdnIdx.Invalidate(addr)
 				} else {
-					c.log.Debugf("updating idx data: %#v", idxData)
-					c.wildcardIdx.Set(addr, idxData, 0)
+					logger.Info("updating idx data", "idx", idxData)
+					c.fqdnIdx.Set(addr, idxData, 0)
 				}
 			}
 		}
-		c.wildcardData.Invalidate(wildcard)
+		c.fqdnData.Invalidate(fqdn)
 	}
 
 	return nil
@@ -115,6 +115,6 @@ func (c *Cache) ReconcileIndex(desiredWildcards map[string]struct{}) error {
 // HasAddr returns true if the given address exists
 // in cache and hence is allow-listed.
 func (c *Cache) HasAddr(addr uint32) bool {
-	_, ok := c.wildcardIdx.Get(addr)
+	_, ok := c.fqdnIdx.Get(addr)
 	return ok
 }

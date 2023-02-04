@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"net"
 	"strings"
 	"time"
@@ -14,11 +15,9 @@ func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 	if ok {
 		return data
 	}
-
-	// lookup address and store it
-	addrs, err := net.LookupIP(hostname)
+	addrs, err := c.resolver.LookupIP(context.Background(), "ip4", hostname)
 	if err != nil {
-		c.log.Errorf("unable to lookup hostname %s: %s", hostname, err.Error())
+		logger.Error(err, "lookup error", "hostname", hostname)
 		return nil
 	}
 	data = make(map[uint32]struct{})
