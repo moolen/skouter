@@ -122,10 +122,10 @@ var _ = Describe("pod egress policies", Label("pod"), func() {
 			), crclient.Apply, crclient.FieldOwner("e2e"), crclient.ForceOwnership)
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(func() string {
-			out, _ := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
-			return out
-		}).WithTimeout(testTimeout).WithPolling(time.Second).Should(ContainSubstring("bad address"))
+		Eventually(func() error {
+			_, err := ExecCmd(clientSet, restConfig, uid, "default", testExampleCom, "", testTimeout)
+			return err
+		}).WithTimeout(testTimeout).WithPolling(time.Second).Should(HaveOccurred())
 	})
 
 	It("allow pod egress after egress cidr has been updated", func() {
@@ -217,7 +217,7 @@ var _ = Describe("pod egress policies", Label("pod"), func() {
 	})
 })
 
-func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, regexps []string) *v1alpha1.Egress {
+func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, fqdns []string) *v1alpha1.Egress {
 	return &v1alpha1.Egress{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       v1alpha1.EgressKind,
@@ -236,7 +236,7 @@ func podEgressPolicy(uid string, podLabels map[string]string, domains, cidrs, re
 				{
 					Domains: domains,
 					CIDRs:   cidrs,
-					Regexps: regexps,
+					FQDN:    fqdns,
 				},
 				{
 					IPs: controlPlaneAddrs,

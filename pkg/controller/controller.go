@@ -7,8 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,8 +23,6 @@ import (
 	"github.com/moolen/skouter/pkg/log"
 	"github.com/moolen/skouter/pkg/metrics"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -97,7 +93,7 @@ func New(
 	for _, dnsAddr := range allowedDNS {
 		dnsIP := net.ParseIP(dnsAddr)
 		if dnsIP == nil {
-			return nil, fmt.Errorf("invalid ip addr: %s", dnsIP)
+			return nil, fmt.Errorf("invalid ip addr: %s", dnsAddr)
 		}
 		dnsAddrs = append(dnsAddrs, binary.LittleEndian.Uint32(dnsIP.To4()))
 	}
@@ -209,6 +205,7 @@ func (c *Controller) Run() error {
 	if err != nil {
 		return fmt.Errorf("unable to prewarm: %s", err)
 	}
+
 	go c.dnsproxy.Start()
 
 	logger.Info("attaching progs", "dir", c.cgroupfs)
@@ -355,7 +352,7 @@ func (c *Controller) preWarm() error {
 
 func (c *Controller) AllowHost(key uint32, addr net.IP) error {
 	resolvedAddr := binary.LittleEndian.Uint32(addr)
-	logger.Info("unblocking resolved addr", "daddr", keyToIP(resolvedAddr), "key", keyToIP(key))
+	logger.V(3).Info("unblocking resolved addr", "daddr", keyToIP(resolvedAddr), "key", keyToIP(key))
 
 	var innerID ebpf.MapID
 	err := c.bpf.EgressConfig.Lookup(key, &innerID)
@@ -396,167 +393,13 @@ func (c *Controller) updateConfig() error {
 func (c *Controller) updateIndices() error {
 	start := time.Now()
 	defer metrics.UpdateIndices.With(nil).Observe(time.Since(start).Seconds())
-	addrIdx := make(indices.AddressIndex)
-	cidrIdx := make(indices.CIDRIndex)
-	hostIdx := make(indices.HostIndex)
-	ruleIdx := make(indices.RuleIndex)
-	unstructured, err := c.k8sDynClient.Resource(v1alpha1.EgressGroupVersionResource).List(c.ctx, metav1.ListOptions{})
+
+	addrIdx, cidrIdx, hostIdx, ruleIdx, err := indices.Generate(
+		c.ctx, c.k8sDynClient, c.k8sClientSet, c.dnsCache,
+		c.allowedDNS, c.nodeIP, c.nodeName, c.gwAddr, c.gwIfAddr,
+	)
 	if err != nil {
 		return err
-	}
-
-	for _, unstructuredEgress := range unstructured.Items {
-		var egress v1alpha1.Egress
-		err = runtime.DefaultUnstructuredConverter.
-			FromUnstructured(unstructuredEgress.Object, &egress)
-		if err != nil {
-			return err
-		}
-
-		// prepare allowed egress ips
-		hosts := []string{}
-		egressIPs := map[uint32]uint32{}
-		egressCIDRs := map[string]*net.IPNet{}
-		egressRegexs := map[string]*regexp.Regexp{}
-
-		for _, rule := range egress.Spec.Rules {
-			hosts = append(hosts, rule.Domains...)
-			// add static ips
-			for _, ip := range rule.IPs {
-				key := keyForAddr(net.ParseIP(ip))
-				egressIPs[key] = ActionAllow
-			}
-			// add dynamic ips (without fqdns)
-			for _, domain := range rule.Domains {
-				addrs := c.dnsCache.Lookup(domain)
-				if addrs == nil {
-					continue
-				}
-				for addr := range addrs {
-					egressIPs[addr] = ActionAllow
-				}
-			}
-
-			for _, cidr := range rule.CIDRs {
-				_, net, err := net.ParseCIDR(cidr)
-				if err != nil {
-					logger.Error(err, "unable to parse cidr", "cidr", cidr)
-					continue
-				}
-				egressCIDRs[net.String()] = net
-			}
-
-			for _, reRule := range rule.Regexps {
-				re, err := regexp.Compile(reRule)
-				if err != nil {
-					logger.Error(err, "unable to compile regexp", "rule", reRule)
-					continue
-				}
-				egressRegexs[reRule] = re
-			}
-		}
-
-		// add allowed dns servers
-		for _, addr := range c.allowedDNS {
-			egressIPs[addr] = ActionAllow
-		}
-
-		// add localhost CIDR 127.0.0.1/8
-		egressCIDRs["127.0.0.1/8"] = &net.IPNet{
-			IP:   net.IP{0x7f, 0x0, 0x0, 0x0},
-			Mask: net.IPMask{0xff, 0x0, 0x0, 0x0}}
-
-		// handle host firewall
-		if egress.Spec.NodeSelector != nil {
-			// check if node matches selector
-			node, err := c.k8sClientSet.CoreV1().Nodes().Get(c.ctx, c.nodeName, metav1.GetOptions{})
-			if err != nil {
-				continue
-			}
-			sel := labels.SelectorFromValidatedSet(labels.Set(egress.Spec.NodeSelector.MatchLabels))
-			if !sel.Matches(labels.Set(node.ObjectMeta.Labels)) {
-				logger.V(1).Info("egress node selector doesn't match labels of this node", "egress", egress.ObjectMeta.Name)
-				continue
-			}
-
-			key := keyForAddr(net.ParseIP(c.nodeIP))
-			if addrIdx[key] == nil {
-				addrIdx[key] = make(map[uint32]uint32)
-			}
-			if cidrIdx[key] == nil {
-				cidrIdx[key] = make(map[string]*net.IPNet)
-			}
-			if ruleIdx[key] == nil {
-				ruleIdx[key] = make(map[string]*regexp.Regexp)
-			}
-			// host firewall needs to be allowed to send traffic to
-			// the default gateway and to localhost
-			egressIPs[c.gwAddr] = ActionAllow
-			egressIPs[c.gwIfAddr] = ActionAllow
-
-			// add known IPs/CIDRs to map
-			mergeKeyMap(addrIdx[key], egressIPs)
-			mergeNetMap(cidrIdx[key], egressCIDRs)
-			mergeRegexpMap(ruleIdx[key], egressRegexs)
-
-			for _, hostname := range hosts {
-				if hostIdx[hostname] == nil {
-					hostIdx[hostname] = make(map[uint32]struct{})
-				}
-				hostIdx[hostname][key] = struct{}{}
-			}
-			continue
-		}
-
-		podList, err := c.k8sClientSet.CoreV1().Pods("").List(c.ctx, metav1.ListOptions{
-			FieldSelector: "spec.nodeName=" + c.nodeName,
-			LabelSelector: labels.FormatLabels(egress.Spec.PodSelector.MatchLabels),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to list pods: %w", err)
-		}
-
-		// for every pod: prepare address and hostname indices
-		// so we can do a lookup by pod key
-		for _, pod := range podList.Items {
-			// we do not want to apply policies for pods
-			// that are on the host network.
-			if pod.Status.PodIP == "" || pod.Spec.HostNetwork {
-				continue
-			}
-			podIP := net.ParseIP(pod.Status.PodIP)
-			if podIP == nil {
-				logger.Error(err, "unable to parse ip", "addr", pod.Status.PodIP)
-				continue
-			}
-			key := keyForAddr(podIP)
-			if addrIdx[key] == nil {
-				addrIdx[key] = make(map[uint32]uint32)
-			}
-			if cidrIdx[key] == nil {
-				cidrIdx[key] = make(map[string]*net.IPNet)
-			}
-			if ruleIdx[key] == nil {
-				ruleIdx[key] = make(map[string]*regexp.Regexp)
-			}
-			// add known IPs/CIDRs to map
-			mergeKeyMap(addrIdx[key], egressIPs)
-			mergeNetMap(cidrIdx[key], egressCIDRs)
-			mergeRegexpMap(ruleIdx[key], egressRegexs)
-
-			for _, host := range hosts {
-				// we need to normalize this to a fqdn
-				hostname := host
-				if !strings.HasSuffix(host, ".") {
-					hostname += "."
-				}
-				if hostIdx[hostname] == nil {
-					hostIdx[hostname] = make(map[uint32]struct{})
-				}
-				hostIdx[hostname][key] = struct{}{}
-				mergeHostMap(addrIdx[key], c.dnsCache.Lookup(hostname))
-			}
-		}
 	}
 
 	c.idxMu.Lock()
@@ -566,7 +409,7 @@ func (c *Controller) updateIndices() error {
 	c.ruleIdx = ruleIdx
 	c.idxMu.Unlock()
 
-	c.dnsproxy.UpdateAllowed(hostIdx, ruleIdx, cidrIdx)
+	c.dnsproxy.UpdateAllowed(hostIdx, ruleIdx, cidrIdx, addrIdx)
 	return nil
 }
 

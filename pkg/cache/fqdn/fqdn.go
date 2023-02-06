@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net"
 
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/moolen/skouter/pkg/util"
 )
 
@@ -54,24 +56,30 @@ func (c *Cache) Observe(fqdn string, hosts []string, addrs []net.IP) error {
 }
 
 // DumpMap dumps the maps contents
-func (c *Cache) DumpMap() {
+func (c *Cache) DumpMap(w table.Writer) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	w.AppendRow(table.Row{"fqdn data"}, table.RowConfig{AutoMerge: true, AutoMergeAlign: text.AlignCenter})
+	w.AppendSeparator()
 	for _, k := range c.fqdnData.Keys() {
 		data, _ := c.fqdnData.Get(k)
 		datas, _ := json.Marshal(data)
-		logger.Info("fqdn data dump", "key", k, "value", string(datas))
+		w.AppendRow(table.Row{k, string(datas)})
 	}
 
+	w.AppendSeparator()
+	w.AppendRow(table.Row{"fqdn index"}, table.RowConfig{AutoMerge: true, AutoMergeAlign: text.AlignCenter})
+	w.AppendSeparator()
 	for _, k := range c.fqdnIdx.Keys() {
 		data, _ := c.fqdnIdx.Get(k)
 		datas, _ := json.Marshal(data)
-		logger.Info("fqdn index dump", "key", k, "value", string(datas))
+		w.AppendRow(table.Row{util.ToIP(k), string(datas)})
 	}
 }
 
 // Reconciles the internal state with the given ruleIdx.
-// This evicts IPs from both index and data caches.
+// This evicts IPs from both index and data caches which are not present
+// in desiredFQDNs.
 func (c *Cache) ReconcileIndex(desiredFQDNs map[string]struct{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -117,4 +125,16 @@ func (c *Cache) ReconcileIndex(desiredFQDNs map[string]struct{}) error {
 func (c *Cache) HasAddr(addr uint32) bool {
 	_, ok := c.fqdnIdx.Get(addr)
 	return ok
+}
+
+func (c *Cache) FQDNsForAddr(addr uint32) []string {
+	var fqdns []string
+	FQDNMap, ok := c.fqdnIdx.Get(addr)
+	if !ok {
+		return fqdns
+	}
+	for fqdn := range FQDNMap {
+		fqdns = append(fqdns, fqdn)
+	}
+	return fqdns
 }

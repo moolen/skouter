@@ -17,6 +17,7 @@ import (
 	"github.com/moolen/skouter/pkg/controller"
 	"github.com/moolen/skouter/pkg/log"
 	"github.com/spf13/cobra"
+
 	"github.com/spf13/viper"
 
 	// enable profiling
@@ -39,6 +40,7 @@ var rootCmd = &cobra.Command{
 	Short: "cloud-native egress firewall",
 	Long:  ``,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		log.WithV(verbosity)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := ctrl.SetupSignalHandler()
@@ -109,7 +111,7 @@ var (
 	nodeIP           string
 	cacheStoragePath string
 	auditMode        bool
-	logLevel         string
+	verbosity        int
 	kubeconfig       string
 	cgroupfs         string
 	bpffs            string
@@ -118,14 +120,14 @@ var (
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(&logLevel, "loglevel", "INFO", "loglevel to use (debug, info, warn, error)")
+	rootCmd.PersistentFlags().IntVarP(&verbosity, "verbosity", "v", 0, "verbosity level to use")
 	rootCmd.PersistentFlags().StringVar(&cacheStoragePath, "cache-storage-path", "/var/run/skouter/cache", "path to the skouter cache dir.")
 	rootCmd.PersistentFlags().StringVar(&bpffs, "bpffs", "/host/sys/fs/bpf", "")
-	rootCmd.Flags().StringVar(&nodeName, "node-name", "", "")
-	rootCmd.Flags().StringVar(&nodeIP, "node-ip", "", "ip address of this node. Used to filter egress traffic on the host namespace.")
+	rootCmd.PersistentFlags().StringVar(&nodeName, "node-name", os.Getenv("NODE_NAME"), "")
+	rootCmd.PersistentFlags().StringVar(&nodeIP, "node-ip", os.Getenv("NODE_IP"), "ip address of this node. Used to filter egress traffic on the host namespace.")
 	rootCmd.Flags().BoolVar(&auditMode, "audit-mode", false, "enable audit mode - no actual blocking will be done. This must be specified on start-up and can not be changed during runtime. Metrics `audit_blocked_addr` will contain the IPs egressing")
 	rootCmd.Flags().StringVar(&cgroupfs, "cgroupfs", "/host/sys/fs/cgroup/kubepods.slice", "")
-	rootCmd.Flags().StringArrayVar(&allowedDNS, "allowed-dns", []string{"10.96.0.10"}, "allowed dns server address")
+	rootCmd.PersistentFlags().StringArrayVar(&allowedDNS, "allowed-dns", []string{"10.96.0.10"}, "allowed dns server address")
 	rootCmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig to use (out-of-cluster config)")
 }
 

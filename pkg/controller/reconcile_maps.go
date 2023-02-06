@@ -52,8 +52,8 @@ func (c *Controller) reconcileAddrMap() error {
 		for iit.Next(&destAddr, &allowed) {
 			// case: state exists in bpf map where it shouldn't
 			if _, ok := c.addrIdx[key][destAddr]; !ok {
-				// make sure this is not a regexp
-				if c.fqdnStore.HasAddr(destAddr) {
+				// make sure this addr is not from a owned fqdn rule
+				if c.podHasFQDNRule(key, c.fqdnStore.FQDNsForAddr(destAddr)) {
 					continue
 				}
 				logger.Info("reconciling egress ips, removing key", "key", keyToIP(key), "dest-addr", keyToIP(destAddr))
@@ -66,6 +66,22 @@ func (c *Controller) reconcileAddrMap() error {
 		}
 	}
 	return nil
+}
+
+func (c *Controller) podHasFQDNRule(key uint32, fqdns []string) bool {
+	c.idxMu.RLock()
+	defer c.idxMu.RUnlock()
+
+	for _, fqdn := range fqdns {
+		rules, ok := c.ruleIdx[key]
+		if !ok {
+			continue
+		}
+		if _, ok := rules[fqdn]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileCIDRMap sweeps through all key/value pairs in egressCIDRConfig

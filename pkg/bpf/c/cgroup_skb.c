@@ -93,11 +93,20 @@ struct {
 #define METRICS_EGRESS_ALLOWED 1
 #define METRICS_EGRESS_BLOCKED 2
 #define METRICS_EGRESS_DNS 3
+#define METRICS_RINGBUF_AVAIL_DATA 4
+#define METRICS_RINGBUF_RING_SIZE 5
+#define METRICS_RINGBUF_CONS_POS 6
+#define METRICS_RINGBUF_PROD_POS 7
+
+#define BPF_RB_AVAIL_DATA 0
+#define BPF_RB_RING_SIZE 1
+#define BPF_RB_CONS_POS 2
+#define BPF_RB_PROD_POS 3
 
 // TODO: make these metrics per-pod
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, 5);
+  __uint(max_entries, 1024);
   __type(key, __u32);   // metric index, see #define above
   __type(value, __u32); // counter value
   __uint(pinning, LIBBPF_PIN_BY_NAME);
@@ -122,6 +131,11 @@ void metrics_inc(__u32 key) {
   __sync_fetch_and_add(count, 1);
 }
 
+// increments the metric with the given key
+void metrics_set(__u32 key, __u32 val) {
+  bpf_map_update_elem(&metrics, &key, &val, BPF_ANY);
+}
+
 void metrics_inc_blocked_addr(__u32 addr) {
   __u32 init_val = 1;
   __u32 *count = bpf_map_lookup_elem(&metrics_blocked_addr, &addr);
@@ -131,7 +145,6 @@ void metrics_inc_blocked_addr(__u32 addr) {
   }
   __sync_fetch_and_add(count, 1);
 }
-
 
 volatile const __u32 audit_mode = 0;
 
@@ -230,6 +243,16 @@ int forward_dns(struct __sk_buff *skb) {
     }
     ev->len = i + 1;
   }
+
+  __u32 avail_data = bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA);
+  __u32 ring_size = bpf_ringbuf_query(&events, BPF_RB_RING_SIZE);
+  __u32 cons_pos = bpf_ringbuf_query(&events, BPF_RB_CONS_POS);
+  __u32 prod_pos = bpf_ringbuf_query(&events, BPF_RB_PROD_POS);
+  metrics_set(METRICS_RINGBUF_AVAIL_DATA, avail_data);
+  metrics_set(METRICS_RINGBUF_RING_SIZE, ring_size);
+  metrics_set(METRICS_RINGBUF_CONS_POS, cons_pos);
+  metrics_set(METRICS_RINGBUF_PROD_POS, prod_pos);
+
   bpf_ringbuf_submit(ev, 0);
   return 0;
 }
@@ -255,9 +278,8 @@ int egress(struct __sk_buff *skb) {
   // pass traffic if destination is upstream dns server
   __u32 *ret = bpf_map_lookup_elem(&dns_config, &ip->daddr);
   if (ret != NULL && *ret == 1) {
-
-    // The skouter process sends DNS queries
-    // which must be allowed and are not subject to egress policies
+    // dnsproxy uses a marked socket to make queries to the upstream
+    // dns server. Traffic should be forwarded without blocking.
     if (skb->mark == 0x520) {
       return TC_ALLOW;
     }

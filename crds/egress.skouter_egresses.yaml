@@ -66,14 +66,14 @@ spec:
                       items:
                         type: string
                       type: array
+                    fqdn:
+                      items:
+                        type: string
+                      type: array
                     ips:
                       description: IPs let you allow-list individual IPs IPs are stored
                         in a map structure, hence there is no performance penalty
                         of specifying lots of IPs.
-                      items:
-                        type: string
-                      type: array
-                    regex:
                       items:
                         type: string
                       type: array

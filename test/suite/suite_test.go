@@ -41,7 +41,7 @@ var (
 	// which proxies through kube-apiserver and kubelet.
 	// without this the node is not able to talk to the control plane.
 	controlPlaneAddrs []string
-	testTimeout       = time.Minute
+	testTimeout       = time.Minute * 3
 )
 
 func init() {

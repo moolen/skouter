@@ -17,10 +17,14 @@ clean: ## cleans the node-local ebpf state and restart skouter pods
 cluster: ## starts a cluster
 	@echo starting cluster
 	kind create cluster --config ./kind.yaml
+	helm repo add cilium https://helm.cilium.io/
+	helm install cilium cilium/cilium --version 1.12.6 \
+  		--namespace kube-system
+
 
 build: ## build+load image
 	$(MAKE) -C ../ docker.build IMAGE_TAG=$(VERSION)
-	# kind load docker-image ghcr.io/moolen/skouter:$(VERSION)
+	kind load docker-image ghcr.io/moolen/skouter:$(VERSION)
 
 deploy: ## deploy workload and ensure it uses the latest image
 	@echo installing skouter

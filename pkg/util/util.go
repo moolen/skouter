@@ -43,9 +43,11 @@ func ToIP(addr uint32) net.IP {
 	return net.IP(ToHostBytes32(addr))
 }
 
-func ToNetMask(addr, mask uint32) net.IPMask {
+func ToNetMask(addr, mask uint32) *net.IPNet {
 	var buf []byte
-	buf = append(buf, ToHostBytes32(addr)...)
 	buf = append(buf, ToHostBytes32(mask)...)
-	return net.IPMask(buf)
+	return &net.IPNet{
+		IP:   ToIP(addr),
+		Mask: net.IPMask(buf),
+	}
 }

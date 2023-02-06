@@ -48,7 +48,7 @@ func spoofpkg(msg dns.Msg) {
 	// 16bit length
 	// 16bit checksum
 	udphdr := []byte{255, 255, 0, 0, 0, uint8(len), 0, 0}
-	written, err := c.Write(append(udphdr, msgBytes...))
+	_, err = c.Write(append(udphdr, msgBytes...))
 	if err != nil {
 		logger.Error(err, "unable to write to connection")
 	}
@@ -69,7 +69,7 @@ func receive(ctx context.Context) {
 			buf := make([]byte, 1024)
 			numRead, err := f.Read(buf)
 			if err != nil {
-				fmt.Errorf("error read: %s", err.Error())
+				logger.Error(err, "error read")
 			}
 
 			saddr := buf[12:16]

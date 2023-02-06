@@ -15,7 +15,10 @@
 package cmd
 
 import (
+	"net"
+
 	bpf "github.com/moolen/skouter/pkg/controller"
+	"github.com/moolen/skouter/pkg/util"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +28,12 @@ var debugCmd = &cobra.Command{
 	Short: "",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		err := bpf.DumpConfig(bpffs, cacheStoragePath)
+		cfg := kubeConfig()
+		var allowedDNSAddr []uint32
+		for _, addr := range allowedDNS {
+			allowedDNSAddr = append(allowedDNSAddr, util.IPToUint(net.ParseIP(addr)))
+		}
+		err := bpf.DumpConfig(bpffs, cacheStoragePath, cfg, nodeName, nodeIP, allowedDNSAddr)
 		if err != nil {
 			logger.Error(err, "unable to dump config")
 		}

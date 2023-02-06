@@ -1,4 +1,4 @@
-package main
+package netns
 
 import (
 	"bufio"
@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,19 +17,33 @@ import (
 
 var logger = log.DefaultLogger
 
-func main() {
-	procs, err := ps.Processes()
-	if err != nil {
-		logger.Error(err, "unable to list procs")
-	}
+type NetNS struct {
+	CGroup  string
+	NetNSID uint64
+	PodUUID string
+}
 
+func RootNS() (uint64, error) {
 	rootns, err := namespace.FromPath("/proc/1/ns/net")
 	if err != nil {
-		logger.Error(err, "unable to get ns")
+		return 0, err
 	}
 	rootnsIno := rootns.Ino()
 	rootns.Close()
+	return rootnsIno, nil
+}
 
+func List() ([]NetNS, error) {
+	out := []NetNS{}
+	procs, err := ps.Processes()
+	if err != nil {
+		return nil, err
+	}
+
+	rootnsIno, err := RootNS()
+	if err != nil {
+		return nil, err
+	}
 	for _, proc := range procs {
 		ns, err := namespace.FromPID(proc.Pid(), namespace.NET)
 		if err != nil {
@@ -36,31 +51,46 @@ func main() {
 		}
 		nsIno := ns.Ino()
 		ns.Close()
-		if nsIno == rootnsIno || proc.Executable() != "pause" {
+		if nsIno == rootnsIno {
 			continue
 		}
 
 		cgroupPath := filepath.Join("/proc", strconv.Itoa(proc.Pid()), "cgroup")
-
 		f, err := os.Open(cgroupPath)
 		if err != nil {
 			logger.Error(err, "unable to open cgroup path", "path", cgroupPath)
+			continue
 		}
 		defer f.Close()
 		cgrp, err := parseCgroupFromReader(f)
 		if err != nil {
 			logger.Error(err, "unable to parse cgroup")
+			continue
+		}
+		if cgrp == "" {
+			continue
 		}
 
-		logger.Info("found proc", "pid", proc.Pid(), "ppid", proc.PPid(), "executable", proc.Executable(), "ns", nsIno, "cgroup", cgrp)
+		matches := podUUIDRE.FindStringSubmatch(cgrp)
+		if len(matches) != 2 {
+			continue
+		}
+		podUUID := strings.Replace(matches[1], "_", "-", -1)
+
+		out = append(out, NetNS{
+			CGroup:  cgrp,
+			NetNSID: nsIno,
+			PodUUID: podUUID,
+		})
 	}
+	return out, nil
 }
 
-// helper function for ParseCgroupFile to make testing easier
-func parseCgroupFromReader(r io.Reader) (map[string]string, error) {
-	s := bufio.NewScanner(r)
-	cgroups := make(map[string]string)
+var podUUIDRE = regexp.MustCompile("kubepods.slice.*-pod(.+).slice")
 
+// helper function for ParseCgroupFile to make testing easier
+func parseCgroupFromReader(r io.Reader) (string, error) {
+	s := bufio.NewScanner(r)
 	for s.Scan() {
 		text := s.Text()
 		// from cgroups(7):
@@ -71,16 +101,16 @@ func parseCgroupFromReader(r io.Reader) (map[string]string, error) {
 		//     hierarchy-ID:subsystem-list:cgroup-path
 		parts := strings.SplitN(text, ":", 3)
 		if len(parts) < 3 {
-			return nil, fmt.Errorf("invalid cgroup entry: must contain at least two colons: %v", text)
+			return "", fmt.Errorf("invalid cgroup entry: must contain at least two colons: %v", text)
 		}
 
-		for _, subs := range strings.Split(parts[1], ",") {
-			cgroups[subs] = parts[2]
+		if strings.Contains(parts[2], "kubepods.slice") {
+			return parts[2], nil
 		}
 	}
 	if err := s.Err(); err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return cgroups, nil
+	return "", nil
 }

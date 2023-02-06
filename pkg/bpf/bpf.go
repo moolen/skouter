@@ -1,13 +1,20 @@
 package bpf
 
 import (
+	"errors"
+	"fmt"
+	"strings"
+
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	"github.com/moolen/skouter/pkg/log"
 )
 
 type CidrConfigVal bpfCidrConfigVal
 
 type Event bpfEvent
+
+var logger = log.DefaultLogger.WithName("bpf").V(1)
 
 type LoadedCollection struct {
 	EgressProg *ebpf.Program
@@ -50,9 +57,14 @@ func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
 			PinPath: pinPath,
 		},
 		Programs: ebpf.ProgramOptions{
-			LogSize: 1024,
+			LogSize: 1024 * 1024,
 		},
 	})
+	ve := &ebpf.VerifierError{}
+	if errors.As(err, &ve) {
+		fmt.Println(strings.Join(ve.Log, "\n"))
+		logger.Error(err, "unable to load bpf prog")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +82,16 @@ func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
 
 func (coll *LoadedCollection) Attach(cgroupfs string) error {
 	var err error
+	logger.Info("attaching to cgroup", "dir", cgroupfs)
 	coll.EgressLink, err = link.AttachCgroup(link.CgroupOptions{
 		Path:    cgroupfs,
 		Attach:  ebpf.AttachCGroupInetEgress,
 		Program: coll.EgressProg,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (coll *LoadedCollection) Close() error {

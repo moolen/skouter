@@ -30,6 +30,9 @@ var (
 	DNSParseError = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "dns_parse_error",
 	}, []string{"key"})
+	DNSUpstreamLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "dns_upstream_latency",
+	}, nil)
 	ReconcileMaps = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "reconcile_maps",
 	}, nil)
@@ -49,6 +52,22 @@ var (
 		Name:    "process_dns_packet",
 		Buckets: []float64{0.000001, 0.0000025, 0.000005, 0.00001, 0.000025, 0.00005, 0.0001, 0.001},
 	}, nil)
+
+	RingbufDataAvailable    = prometheus.NewDesc("ringbuf_data_available", "", nil, nil)
+	RingbufRingSize         = prometheus.NewDesc("ringbuf_ring_size", "", nil, nil)
+	RingbufConsumerPosition = prometheus.NewDesc("ringbuf_consumer_position", "", nil, nil)
+	RingbufProducerPosition = prometheus.NewDesc("ringbuf_producer_position", "", nil, nil)
+)
+
+var (
+	// sync with cgroup_skb.c
+	METRICS_EGRESS_ALLOWED     = uint32(1)
+	METRICS_EGRESS_BLOCKED     = uint32(2)
+	METRICS_EGRESS_DNS         = uint32(3)
+	METRICS_RINGBUF_AVAIL_DATA = uint32(4)
+	METRICS_RINGBUF_RING_SIZE  = uint32(5)
+	METRICS_RINGBUF_CONS_POS   = uint32(6)
+	METRICS_RINGBUF_PROD_POS   = uint32(7)
 )
 
 type MetricsCollector struct {
@@ -60,6 +79,7 @@ type MetricsCollector struct {
 func NewCollector(metricsMap, metricsBlockedAddr *ebpf.Map, nodeName string) {
 	prometheus.MustRegister(LookupForbiddenHostname)
 	prometheus.MustRegister(DNSParseError)
+	prometheus.MustRegister(DNSUpstreamLatency)
 	prometheus.MustRegister(ReconcileMaps)
 	prometheus.MustRegister(UpdateIndices)
 	prometheus.MustRegister(ReconcileAddrMap)
@@ -81,11 +101,9 @@ func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	// metric index in bpf map => label value
 	// indices are defined in cgroup_skb.c
 	metrics := map[uint32][]string{
-		1: {cc.nodeName, "EGRESS", "ALLOW"},
-		2: {cc.nodeName, "EGRESS", "BLOCK"},
-		3: {cc.nodeName, "EGRESS", "ALLOW_DNS"},
-		4: {cc.nodeName, "INGRESS", "TXID_MISMATCH"},
-		5: {cc.nodeName, "INGRESS", "ROGUE_DNS"},
+		METRICS_EGRESS_ALLOWED: {cc.nodeName, "EGRESS", "ALLOW"},
+		METRICS_EGRESS_BLOCKED: {cc.nodeName, "EGRESS", "BLOCK"},
+		METRICS_EGRESS_DNS:     {cc.nodeName, "EGRESS", "ALLOW_DNS"},
 	}
 
 	for key, lblValues := range metrics {
@@ -95,6 +113,22 @@ func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(PacketsProcessed, prometheus.CounterValue, float64(val), lblValues...)
+	}
+
+	for key, gauge := range map[uint32]*prometheus.Desc{
+		METRICS_RINGBUF_AVAIL_DATA: RingbufDataAvailable,
+		METRICS_RINGBUF_RING_SIZE:  RingbufRingSize,
+		METRICS_RINGBUF_CONS_POS:   RingbufConsumerPosition,
+		METRICS_RINGBUF_PROD_POS:   RingbufProducerPosition,
+	} {
+		// ringbuf gauge values
+		var val uint32
+		err := cc.metricsMap.Lookup(key, &val)
+		if err != nil && err != ebpf.ErrKeyNotExist {
+			logger.Error(err, "unable to lookup metric", "key", key)
+			continue
+		}
+		ch <- prometheus.MustNewConstMetric(gauge, prometheus.GaugeValue, float64(val))
 	}
 
 	it := cc.metricsBlockedAddr.Iterate()

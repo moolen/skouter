@@ -9,6 +9,12 @@ import (
 	"github.com/moolen/skouter/pkg/util"
 )
 
+func (c *Cache) HasEntry(hostname string) bool {
+	hostname = normalizeHostname(hostname)
+	_, ok := c.hostnameData.Get(hostname)
+	return ok
+}
+
 func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 	hostname = normalizeHostname(hostname)
 	data, ok := c.hostnameData.Get(hostname)
@@ -17,7 +23,7 @@ func (c *Cache) Lookup(hostname string) map[uint32]struct{} {
 	}
 	addrs, err := c.resolver.LookupIP(context.Background(), "ip4", hostname)
 	if err != nil {
-		logger.Error(err, "lookup error", "hostname", hostname)
+		logger.V(2).Error(err, "lookup error", "hostname", hostname)
 		return nil
 	}
 	data = make(map[uint32]struct{})
