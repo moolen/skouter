@@ -5,6 +5,9 @@ image:
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
 
+# clean bpf state on pod startup
+cleanOnStartup: true
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""

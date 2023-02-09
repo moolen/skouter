@@ -31,8 +31,6 @@ type Egress struct {
 
 type EgressSpec struct {
 	// +kubebuilder:validation:Optional
-	PodSelector *Selector `json:"podSelector,omitempty"`
-	// +kubebuilder:validation:Optional
 	NodeSelector *Selector    `json:"nodeSelector,omitempty"`
 	Rules        []EgressRule `json:"rules,omitempty"`
 }

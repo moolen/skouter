@@ -16,9 +16,6 @@ spec:
       hostNetwork: {{ .Values.hostNetwork }}
       dnsPolicy: ClusterFirstWithHostNet
       volumes:
-        - name: cgroup2
-          hostPath:
-            path: /sys/fs/cgroup
         - name: bpffs
           hostPath:
             path: /sys/fs/bpf
@@ -42,6 +39,24 @@ spec:
         - name: bpffs
           mountPath: /sys/fs/bpf
           mountPropagation: Bidirectional
+      {{ if .Values.cleanOnStartup }}
+      - name: rm-bpf-maps
+        image: {{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: IfNotPresent
+        args:
+        - 'rm -rf /sys/fs/bpf/skouter'
+        command:
+        - /bin/sh
+        - -c
+        - --
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+      {{ end }}
       containers:
       - name: controller
         image: {{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag | default .Chart.AppVersion }}
@@ -53,16 +68,16 @@ spec:
         # - CAP_BPF
         args:
           - "-v"
-          - "2"
+          - "5"
           - "--node-name"
           - "$(NODE_NAME)"
           - "--node-ip"
           - "$(NODE_IP)"
-          - "--cgroupfs"
-          - "/host/sys/fs/cgroup"
           - "--bpffs"
           - "/host/sys/fs/bpf"
           - "--audit-mode=false"
+          - "--net-device-name=eth0"
+          - "--trusted-dns-endpoint=192.168.178.1:53"
         env:
           - name: NODE_NAME
             valueFrom:
@@ -74,8 +89,6 @@ spec:
               fieldRef:
                 fieldPath: status.hostIP
         volumeMounts:
-          - mountPath: /host/sys/fs/cgroup
-            name: cgroup2
           - mountPath: /host/sys/fs/bpf
             name: bpffs
           - mountPath: /var/run/skouter

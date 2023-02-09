@@ -20,10 +20,8 @@ Requirements:
 - is capable of filtering **host** egress traffic
 - supports audit mode that allows to discover traffic patterns before blocking them
 
-It runs on a cgroup2 skb hook. Essentially, all Kubernetes traffic from pods is subject to firewall policies (or all node traffic if attached to the root cgroup).
-It parses the DNS response packets from the trusted DNS server and allows/blocks traffic egressing from a pod.
-
-It was built because Kubernetes network policies do not provide the semantics for this.
+It runs on the tc egress hook. Essentially, all traffic from the host that goes through that interface is subject to egress policies.
+It parses the DNS response packets from the trusted DNS server and allows/blocks traffic egressing from the system.
 
 There are other implemenatation approaches for egress filtering:
 
@@ -35,12 +33,10 @@ There are other implemenatation approaches for egress filtering:
 
 ### Limitations and edge cases
 
-* DNS over TCP is not supported / not possible
+* DNS over TCP is not supported, currently
+* IPv6 is not yet supported
 * may interfere with other eBPF-based tools (e.g. cilium)
-
-Others:
-
-- CIDR range per node is /24
+* depending on the CNI implementation, pods may also be subject to the same egress policies as the host (overlay networking)
 
 ## Further improvements
 
@@ -74,10 +70,6 @@ spec:
   # use nodeSelector to set up
   # host firewall
   nodeSelector: {}
-  # match a particular pod
-  podSelector:
-    matchLabels:
-      run: alpine
   rules:
     - domains:
       - example.com
@@ -92,12 +84,9 @@ spec:
       - .*\.wikipedia\.org # de|en|...
 ```
 
-We can run a pod that matches the `podSelector` from above egress config
-and see what we can reach:
+On the host system, try make HTTP calls to verify the behaviour:
 
 ```shell
-$ kubectl run alpine --image=alpine -it -- /bin/sh
-
 % wget -O - example.com
 Connecting to example.com (93.184.216.34:80)
 writing to stdout

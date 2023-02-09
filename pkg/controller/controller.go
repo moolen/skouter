@@ -3,12 +3,17 @@ package controller
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/ringbuf"
@@ -22,6 +27,8 @@ import (
 	"github.com/moolen/skouter/pkg/indices"
 	"github.com/moolen/skouter/pkg/log"
 	"github.com/moolen/skouter/pkg/metrics"
+	"github.com/moolen/skouter/pkg/util"
+	"github.com/vishvananda/netlink"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
@@ -41,15 +48,17 @@ type Controller struct {
 	nodeName      string
 	nodeIP        string
 	updateChan    chan struct{}
-	cgroupfs      string
+	netDeviceName string
 	bpffs         string
 	gwAddr        uint32
 	gwIfAddr      uint32
-	allowedDNS    []uint32
-	dnsCache      *dnscache.Cache
-	fqdnStore     *fqdn.Cache
-	dnsproxy      *dnsproxy.DNSProxy
-	ringbufReader *ringbuf.Reader
+
+	trustedDNSEndpoint        string
+	trustedDNSEndpointService string
+	dnsCache                  *dnscache.Cache
+	fqdnStore                 *fqdn.Cache
+	dnsproxy                  *dnsproxy.DNSProxy
+	ringbufReader             *ringbuf.Reader
 
 	idxMu *sync.RWMutex
 	// hostIdx is a map: hostname => map[pod-key]=>allowed-state
@@ -64,7 +73,7 @@ type Controller struct {
 
 var (
 	// Action used by the bpf program
-	// needs to be in sync with cgroup_skb.c
+	// needs to be in sync with egress.c
 	// TODO: pull these settings from bytecode so there's no need to sync
 	ActionAllow = uint32(1)
 
@@ -77,25 +86,17 @@ var (
 func New(
 	ctx context.Context,
 	k8sConfig *rest.Config,
-	cgroupfs,
+	netDeviceName,
 	bpffs,
 	nodeName,
 	nodeIP,
-	cacheStoragePath string,
-	allowedDNS []string,
+	cacheStoragePath,
+	trustedDNSEndpoint,
+	trustedDNSEndpointService string,
 	auditMode bool) (*Controller, error) {
 	// Allow the current process to lock memory for eBPF resources.
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, err
-	}
-
-	var dnsAddrs []uint32
-	for _, dnsAddr := range allowedDNS {
-		dnsIP := net.ParseIP(dnsAddr)
-		if dnsIP == nil {
-			return nil, fmt.Errorf("invalid ip addr: %s", dnsAddr)
-		}
-		dnsAddrs = append(dnsAddrs, binary.LittleEndian.Uint32(dnsIP.To4()))
 	}
 
 	// TODO: make that configurable/extensible through CLI
@@ -132,18 +133,19 @@ func New(
 		k8sDynClient: dynClient,
 		updateChan:   make(chan struct{}),
 
-		cgroupfs:   cgroupfs,
-		bpffs:      bpffs,
-		allowedDNS: dnsAddrs,
-		gwAddr:     binary.LittleEndian.Uint32(gwAddr.To4()),
-		gwIfAddr:   binary.LittleEndian.Uint32(gwIfAddr.To4()),
-		dnsCache:   dnscache.New(),
-		fqdnStore:  fqdnCache,
-		nodeName:   nodeName,
-		nodeIP:     nodeIP,
-		auditMode:  auditMode,
-		idxMu:      &sync.RWMutex{},
-		hostIdx:    indices.HostIndex{},
+		netDeviceName:             netDeviceName,
+		bpffs:                     bpffs,
+		trustedDNSEndpoint:        trustedDNSEndpoint,
+		trustedDNSEndpointService: trustedDNSEndpointService,
+		gwAddr:                    binary.LittleEndian.Uint32(gwAddr.To4()),
+		gwIfAddr:                  binary.LittleEndian.Uint32(gwIfAddr.To4()),
+		dnsCache:                  dnscache.New(),
+		fqdnStore:                 fqdnCache,
+		nodeName:                  nodeName,
+		nodeIP:                    nodeIP,
+		auditMode:                 auditMode,
+		idxMu:                     &sync.RWMutex{},
+		hostIdx:                   indices.HostIndex{},
 	}
 
 	err = ctrl.loadBPF()
@@ -155,7 +157,7 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	ctrl.dnsproxy, err = dnsproxy.NewProxy(ctrl.ringbufReader, ctrl.dnsCache, fqdnCache, ctrl.AllowHost)
+	ctrl.dnsproxy, err = dnsproxy.NewProxy(ctrl.ringbufReader, ctrl.dnsCache, fqdnCache, ctrl.AllowHost, ctrl.nodeIP, trustedDNSEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -187,18 +189,13 @@ func (c *Controller) Run() error {
 	// 1. do not block egress traffic
 	// 2. query & store allowed hosts' IP addresses
 	// 3. block egress.
-
-	// set the upstream dns server
-	logger.Info("setting allowed dns", "allowed-ips", c.allowedDNS)
-	for _, addr := range c.allowedDNS {
-		err := c.bpf.DNSConfig.Put(addr, ActionAllow) // value isn't used
-		if err != nil {
-			return fmt.Errorf("unable to set dns config: %w", err)
-		}
+	err = c.configureMaps()
+	if err != nil {
+		return err
 	}
 
 	// start to listen for updates
-	go c.readUpdates()
+	go c.reconcileEgressResources()
 
 	// pre-warm DNS cache and allow-list IPs
 	err = c.preWarm()
@@ -207,13 +204,171 @@ func (c *Controller) Run() error {
 	}
 
 	go c.dnsproxy.Start()
-
-	logger.Info("attaching progs", "dir", c.cgroupfs)
-	// attach the program to cgroup
-	return c.bpf.Attach(c.cgroupfs)
+	return c.bpf.Attach(c.netDeviceName)
 }
 
-func (c *Controller) readUpdates() {
+func (c *Controller) configureMaps() error {
+	// add statically configured trusted DNS server
+	addr, port, err := net.SplitHostPort(c.trustedDNSEndpoint)
+	if err != nil {
+		return err
+	}
+	dnsIP := net.ParseIP(addr)
+	dnsPort, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("unable to convert %s to int: %w", port, err)
+	}
+	err = c.addAllowedDNS(dnsIP, dnsPort)
+	if err != nil {
+		return err
+	}
+
+	err = c.kubeDNSEndpointWatch()
+	if err != nil {
+		return err
+	}
+
+	lnk, err := netlink.LinkByName(c.netDeviceName)
+	if err != nil {
+		return err
+	}
+	proxyCfg := bpf.ProxyRedirectConfig{
+		Addr:    util.IPToUint(net.ParseIP(c.nodeIP)),
+		Ifindex: uint16(lnk.Attrs().Index),
+	}
+	logger.Info("setting proxy redirect map", "config", proxyCfg, "map value size", c.bpf.ProxyRedirectMap.ValueSize())
+	err = c.bpf.ProxyRedirectMap.Put(uint32(0), &proxyCfg)
+	if err != nil {
+		return fmt.Errorf("unable to update proxy redirect map: %w", err)
+	}
+	dmac := bpf.ProxyRedirectDMAC{
+		Dmac1: binary.LittleEndian.Uint32([]byte{
+			lnk.Attrs().HardwareAddr[0],
+			lnk.Attrs().HardwareAddr[1],
+			lnk.Attrs().HardwareAddr[2],
+			lnk.Attrs().HardwareAddr[3]}),
+		Dmac2: binary.LittleEndian.Uint16([]byte{
+			lnk.Attrs().HardwareAddr[4],
+			lnk.Attrs().HardwareAddr[5]}),
+	}
+	err = c.bpf.ProxyRedirectDMACMap.Put(uint32(0), &dmac)
+	if err != nil {
+		return fmt.Errorf("unable to update proxy redirect dmac map: %w", err)
+	}
+
+	for _, cookie := range c.dnsproxy.UpstreamSocketCookies {
+		err = c.bpf.ProxySocketCookieMap.Put(cookie, uint32(1))
+		if err != nil {
+			return fmt.Errorf("unable to update proxy socket cookie map: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (c *Controller) addAllowedDNS(ip net.IP, port int) error {
+	if ip == nil || port == 0 {
+		return fmt.Errorf("cannot allow empty ip or port=0")
+	}
+	dnsConfigKey := bpf.DNSServerEndpoint{
+		Addr: util.IPToUint(ip),
+		Port: util.ToNetBytes16(uint16(port)),
+	}
+	logger.V(2).Info("add allowed dns endpoint", "config", dnsConfigKey)
+	err := c.bpf.DNSConfig.Put(&dnsConfigKey, ActionAllow)
+	if err != nil {
+		return fmt.Errorf("unable to set dns config: %w", err)
+	}
+	return nil
+}
+
+func (c *Controller) deleteAllowedDNS(ip net.IP, port int) error {
+	if ip == nil || port == 0 {
+		return fmt.Errorf("cannot allow empty ip or port=0")
+	}
+	dnsConfigKey := bpf.DNSServerEndpoint{
+		Addr: util.IPToUint(ip),
+		Port: util.ToNetBytes16(uint16(port)),
+	}
+	logger.V(2).Info("deleting allowed dns endpoint", "config", dnsConfigKey)
+	err := c.bpf.DNSConfig.Delete(&dnsConfigKey)
+	if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return fmt.Errorf("unable to set dns config: %w", err)
+	}
+	return nil
+}
+
+func (c *Controller) kubeDNSEndpointWatch() error {
+	if c.trustedDNSEndpoint == "" {
+		return nil
+	}
+	fields := strings.Split(c.trustedDNSEndpointService, "/")
+	if len(fields) != 2 {
+		return fmt.Errorf("unable to parse trustend service endpoint %q: unexpected format. expected <namespace>/<service>", c.trustedDNSEndpointService)
+	}
+	ns := strings.TrimSpace(fields[0])
+	svc := strings.TrimSpace(fields[1])
+	watcher, err := c.k8sClientSet.CoreV1().Endpoints(ns).Watch(c.ctx, metav1.ListOptions{
+		FieldSelector: "metadata.name=" + svc,
+	})
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		logger.Info("watching dns service endpoints", "namespace", ns, "service", svc)
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case ev := <-watcher.ResultChan():
+				if ev.Object == nil {
+					continue
+				}
+				logger.Info("received endpoint event", "event", ev)
+				ep, ok := ev.Object.(*corev1.Endpoints)
+				if !ok {
+					logger.Error(fmt.Errorf("unexpected watch object %#v", ev.Object), "")
+					continue
+				}
+
+				if ev.Type == watch.Deleted {
+					for _, s := range ep.Subsets {
+						for _, addr := range s.Addresses {
+							ip := net.ParseIP(addr.IP)
+							for _, port := range s.Ports {
+								if port.Protocol == corev1.ProtocolUDP {
+									err = c.deleteAllowedDNS(ip, int(port.Port))
+									if err != nil {
+										logger.Error(err, "unable to delete allowed dns ")
+									}
+								}
+							}
+						}
+					}
+				}
+				if ev.Type == watch.Added || ev.Type == watch.Modified {
+					for _, s := range ep.Subsets {
+						for _, addr := range s.Addresses {
+							ip := net.ParseIP(addr.IP)
+							for _, port := range s.Ports {
+								if port.Protocol == corev1.ProtocolUDP {
+									err = c.addAllowedDNS(ip, int(port.Port))
+									if err != nil {
+										logger.Error(err, "unable to delete allowed dns ")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+func (c *Controller) reconcileEgressResources() {
 	update := debounceCallable(time.Second*5, func() {
 		err := c.updateConfig()
 		if err != nil {
@@ -330,6 +485,7 @@ func (c *Controller) preWarm() error {
 	hostIdx := c.hostIdx.Clone()
 	c.idxMu.RUnlock()
 
+	logger.Info("prewarm host indices")
 	for host, podKeys := range hostIdx {
 		addrs := c.dnsCache.LookupIP(host)
 		for _, addr := range addrs {
@@ -396,7 +552,7 @@ func (c *Controller) updateIndices() error {
 
 	addrIdx, cidrIdx, hostIdx, ruleIdx, err := indices.Generate(
 		c.ctx, c.k8sDynClient, c.k8sClientSet, c.dnsCache,
-		c.allowedDNS, c.nodeIP, c.nodeName, c.gwAddr, c.gwIfAddr,
+		c.trustedDNSEndpoint, c.nodeIP, c.nodeName, c.gwAddr, c.gwIfAddr,
 	)
 	if err != nil {
 		return err
@@ -409,7 +565,7 @@ func (c *Controller) updateIndices() error {
 	c.ruleIdx = ruleIdx
 	c.idxMu.Unlock()
 
-	c.dnsproxy.UpdateAllowed(hostIdx, ruleIdx, cidrIdx, addrIdx)
+	c.dnsproxy.UpdateAllowed(hostIdx, ruleIdx)
 	return nil
 }
 

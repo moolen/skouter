@@ -6,17 +6,15 @@ import (
 	"net"
 
 	"github.com/miekg/dns"
-	"github.com/moolen/skouter/pkg/bpf"
-	"github.com/moolen/skouter/pkg/util"
 	"golang.org/x/net/ipv4"
 )
 
 // this is a subset of the dns.ResponseWriter
 type DNSResponseWriter interface {
 	// LocalAddr returns the net.UDPAddr of the server
-	LocalAddr() *net.UDPAddr
+	LocalAddr() net.Addr
 	// RemoteAddr returns the net.UDPAddr of the client that sent the current request.
-	RemoteAddr() *net.UDPAddr
+	RemoteAddr() net.Addr
 	// WriteMsg writes a reply back to the client.
 	WriteMsg(*dns.Msg) error
 }
@@ -30,24 +28,14 @@ type ResponseWriter struct {
 	remotePort uint16
 }
 
-func resWriterfromEvent(conn *net.IPConn, ev *bpf.Event) *ResponseWriter {
-	return &ResponseWriter{
-		conn:       conn,
-		localAddr:  util.ToIP(ev.PodAddr),
-		localPort:  util.ToHost16(ev.PodPort),
-		remoteAddr: util.ToIP(ev.DstAddr),
-		remotePort: util.ToHost16(ev.DstPort),
-	}
-}
-
-func (r *ResponseWriter) LocalAddr() *net.UDPAddr {
+func (r *ResponseWriter) LocalAddr() net.Addr {
 	return &net.UDPAddr{
 		IP:   r.localAddr,
 		Port: int(r.localPort),
 	}
 }
 
-func (r *ResponseWriter) RemoteAddr() *net.UDPAddr {
+func (r *ResponseWriter) RemoteAddr() net.Addr {
 	return &net.UDPAddr{
 		IP:   r.remoteAddr,
 		Port: int(r.remotePort),

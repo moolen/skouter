@@ -14,11 +14,13 @@ import (
 // reconcileAddrMap sweeps through all key/value pairs in egressConfig
 // and removes orphaned keys
 func (c *Controller) reconcileAddrMap() error {
+	logger.Info("reconciling addr map")
 	start := time.Now()
 	defer metrics.ReconcileAddrMap.With(nil).Observe(time.Since(start).Seconds())
 	c.idxMu.RLock()
 	defer c.idxMu.RUnlock()
 
+	logger.Info("updating static addrs")
 	// update egress ips
 	for key, staticAddrs := range c.addrIdx {
 		err := c.bpf.EgressConfig.Update(key, staticAddrs)
@@ -87,6 +89,7 @@ func (c *Controller) podHasFQDNRule(key uint32, fqdns []string) bool {
 // reconcileCIDRMap sweeps through all key/value pairs in egressCIDRConfig
 // and removes orphaned pods
 func (c *Controller) reconcileCIDRMap() error {
+	logger.Info("reconciling cidr map")
 	start := time.Now()
 	defer metrics.ReconcileCIDRMap.With(nil).Observe(time.Since(start).Seconds())
 	c.idxMu.RLock()

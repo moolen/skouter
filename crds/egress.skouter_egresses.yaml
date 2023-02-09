@@ -44,13 +44,6 @@ spec:
                       type: string
                     type: object
                 type: object
-              podSelector:
-                properties:
-                  matchLabels:
-                    additionalProperties:
-                      type: string
-                    type: object
-                type: object
               rules:
                 items:
                   properties:

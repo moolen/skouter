@@ -52,22 +52,13 @@ var (
 		Name:    "process_dns_packet",
 		Buckets: []float64{0.000001, 0.0000025, 0.000005, 0.00001, 0.000025, 0.00005, 0.0001, 0.001},
 	}, nil)
-
-	RingbufDataAvailable    = prometheus.NewDesc("ringbuf_data_available", "", nil, nil)
-	RingbufRingSize         = prometheus.NewDesc("ringbuf_ring_size", "", nil, nil)
-	RingbufConsumerPosition = prometheus.NewDesc("ringbuf_consumer_position", "", nil, nil)
-	RingbufProducerPosition = prometheus.NewDesc("ringbuf_producer_position", "", nil, nil)
 )
 
 var (
-	// sync with cgroup_skb.c
-	METRICS_EGRESS_ALLOWED     = uint32(1)
-	METRICS_EGRESS_BLOCKED     = uint32(2)
-	METRICS_EGRESS_DNS         = uint32(3)
-	METRICS_RINGBUF_AVAIL_DATA = uint32(4)
-	METRICS_RINGBUF_RING_SIZE  = uint32(5)
-	METRICS_RINGBUF_CONS_POS   = uint32(6)
-	METRICS_RINGBUF_PROD_POS   = uint32(7)
+	// sync with egress.c
+	METRICS_EGRESS_ALLOWED = uint32(1)
+	METRICS_EGRESS_BLOCKED = uint32(2)
+	METRICS_EGRESS_DNS     = uint32(3)
 )
 
 type MetricsCollector struct {
@@ -99,7 +90,7 @@ func (cc MetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 
 func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	// metric index in bpf map => label value
-	// indices are defined in cgroup_skb.c
+	// indices are defined in egress.c
 	metrics := map[uint32][]string{
 		METRICS_EGRESS_ALLOWED: {cc.nodeName, "EGRESS", "ALLOW"},
 		METRICS_EGRESS_BLOCKED: {cc.nodeName, "EGRESS", "BLOCK"},
@@ -113,22 +104,6 @@ func (cc MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(PacketsProcessed, prometheus.CounterValue, float64(val), lblValues...)
-	}
-
-	for key, gauge := range map[uint32]*prometheus.Desc{
-		METRICS_RINGBUF_AVAIL_DATA: RingbufDataAvailable,
-		METRICS_RINGBUF_RING_SIZE:  RingbufRingSize,
-		METRICS_RINGBUF_CONS_POS:   RingbufConsumerPosition,
-		METRICS_RINGBUF_PROD_POS:   RingbufProducerPosition,
-	} {
-		// ringbuf gauge values
-		var val uint32
-		err := cc.metricsMap.Lookup(key, &val)
-		if err != nil && err != ebpf.ErrKeyNotExist {
-			logger.Error(err, "unable to lookup metric", "key", key)
-			continue
-		}
-		ch <- prometheus.MustNewConstMetric(gauge, prometheus.GaugeValue, float64(val))
 	}
 
 	it := cc.metricsBlockedAddr.Iterate()

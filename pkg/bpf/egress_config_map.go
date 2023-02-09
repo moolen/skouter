@@ -12,7 +12,7 @@ type EgressConfig struct {
 }
 
 var (
-	// inner map must be in sync with cgroup_skb.c
+	// inner map must be in sync with egress.c
 	innerIPMap = &ebpf.MapSpec{
 		Name:       "pod_egress_config",
 		Type:       ebpf.Hash,

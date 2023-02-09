@@ -6,31 +6,34 @@ import (
 	"strings"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	"github.com/moolen/skouter/pkg/log"
 )
 
 type CidrConfigVal bpfCidrConfigVal
-
-type Event bpfEvent
+type DNSServerEndpoint bpfDnsServerEndpoint
+type ProxyRedirectConfig bpfProxyRedirectConfig
+type ProxyRedirectDMAC bpfProxyRedirectDmac
 
 var logger = log.DefaultLogger.WithName("bpf").V(1)
 
 type LoadedCollection struct {
-	EgressProg *ebpf.Program
-	EgressLink link.Link
+	HostEgress *ebpf.Program
+	deviceName string
 
-	EgressConfig       *EgressConfig
-	EgressCIDRConfig   *EgressCIDRConfig
-	DNSConfig          *ebpf.Map
-	MetricsMap         *ebpf.Map
-	MetricsBlockedAddr *ebpf.Map
-	EventsMap          *ebpf.Map
+	EgressConfig         *EgressConfig
+	EgressCIDRConfig     *EgressCIDRConfig
+	ProxySocketCookieMap *ebpf.Map
+	ProxyRedirectMap     *ebpf.Map
+	ProxyRedirectDMACMap *ebpf.Map
+	DNSConfig            *ebpf.Map
+	MetricsMap           *ebpf.Map
+	MetricsBlockedAddr   *ebpf.Map
+	EventsMap            *ebpf.Map
 }
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event -type cidr_config_val bpf ./c/cgroup_skb.c -- -I./c/headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type dns_server_endpoint -type proxy_redirect_config -type proxy_redirect_dmac -type cidr_config_val bpf ./c/egress.c -- -I./c/headers
 func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
 	objs := bpfObjects{}
 	spec, err := loadBpf()
@@ -69,38 +72,48 @@ func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
 		return nil, err
 	}
 	return &LoadedCollection{
-		EgressProg: objs.bpfPrograms.Egress,
+		HostEgress: objs.bpfPrograms.Classifier,
 
-		EgressConfig:       &EgressConfig{objs.bpfMaps.EgressConfig},
-		EgressCIDRConfig:   &EgressCIDRConfig{objs.bpfMaps.EgressCidrConfig},
-		DNSConfig:          objs.bpfMaps.DnsConfig,
-		MetricsMap:         objs.bpfMaps.Metrics,
-		MetricsBlockedAddr: objs.bpfMaps.MetricsBlockedAddr,
-		EventsMap:          objs.bpfMaps.Events,
+		EgressConfig:         &EgressConfig{objs.bpfMaps.EgressConfig},
+		EgressCIDRConfig:     &EgressCIDRConfig{objs.bpfMaps.EgressCidrConfig},
+		ProxySocketCookieMap: objs.bpfMaps.ProxySocketCookie,
+		ProxyRedirectMap:     objs.bpfMaps.ProxyRedirectMap,
+		ProxyRedirectDMACMap: objs.bpfMaps.ProxyRedirectDmacMap,
+		DNSConfig:            objs.bpfMaps.DnsConfig,
+		MetricsMap:           objs.bpfMaps.Metrics,
+		MetricsBlockedAddr:   objs.bpfMaps.MetricsBlockedAddr,
+		EventsMap:            objs.bpfMaps.Events,
 	}, nil
 }
 
-func (coll *LoadedCollection) Attach(cgroupfs string) error {
+func (coll *LoadedCollection) Attach(deviceName string) error {
 	var err error
-	logger.Info("attaching to cgroup", "dir", cgroupfs)
-	coll.EgressLink, err = link.AttachCgroup(link.CgroupOptions{
-		Path:    cgroupfs,
-		Attach:  ebpf.AttachCGroupInetEgress,
-		Program: coll.EgressProg,
-	})
+	logger.Info("attaching to device", "device", deviceName)
+	coll.deviceName = deviceName
+	err = attachProgram(deviceName, coll.HostEgress)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
 func (coll *LoadedCollection) Close() error {
-	coll.EgressProg.Close()
-	coll.EgressLink.Close()
+	logger.Info("unloading bpf programs/maps")
 
+	err := detachProgram(coll.deviceName, coll.HostEgress)
+	if err != nil {
+		logger.Error(err, "unable to detach program", "device", coll.deviceName)
+	}
+	logger.Info("detached program", "device", coll.deviceName)
+
+	coll.HostEgress.Close()
 	coll.EventsMap.Close()
 	coll.EgressConfig.Close()
+	coll.ProxyRedirectMap.Close()
+	coll.ProxyRedirectDMACMap.Close()
 	coll.EgressCIDRConfig.Close()
+	coll.ProxySocketCookieMap.Close()
 	coll.DNSConfig.Close()
 	coll.MetricsMap.Close()
 	coll.MetricsBlockedAddr.Close()

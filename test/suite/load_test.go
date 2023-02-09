@@ -95,7 +95,7 @@ var _ = Describe("load test", Label("load"), Ordered, func() {
 
 	It("run load test with fixed domain", func() {
 		By("creating egress policy")
-		err := k8s.Create(context.Background(), podEgressPolicy(podName, defaultLabels(podName), HTTPBinBackends, nil, nil))
+		err := k8s.Create(context.Background(), hostEgressPolicy(podName, defaultLabels(podName), HTTPBinBackends, nil, nil))
 		Expect(err).ToNot(HaveOccurred())
 
 		done := make(chan struct{})
@@ -119,7 +119,7 @@ var _ = Describe("load test", Label("load"), Ordered, func() {
 
 	It("run load test with regex domain", func() {
 		By("creating egress policy")
-		err := k8s.Create(context.Background(), podEgressPolicy(podName, defaultLabels(podName), nil, nil, []string{
+		err := k8s.Create(context.Background(), hostEgressPolicy(podName, defaultLabels(podName), nil, nil, []string{
 			".*default.svc.cluster.local",
 		}))
 		Expect(err).ToNot(HaveOccurred())

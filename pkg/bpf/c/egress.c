@@ -11,17 +11,15 @@
 #define TC_ALLOW 1
 #define TC_BLOCK 2
 
-struct event {
-  __u16 len;
-  __u32 pod_addr;
-  __u16 pod_port;
-  __u16 dst_port;
-  __u32 dst_addr;
-  u8 pkt[MAX_PKT];
-};
-
-// Force emitting struct event into the ELF.
-const struct event *unused __attribute__((unused));
+#define ETH_HLEN 14
+#define ETH_ALEN 6
+#define L3_CSUM_OFF (ETH_HLEN + offsetof(struct iphdr, check))
+#define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
+#define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
+#define L4_PORT_OFF                                                            \
+  (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, dest))
+#define L4_CSUM_OFF                                                            \
+  (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, check))
 
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -76,16 +74,62 @@ struct {
   __array(values, struct pod_egress_cidr_config);
 } egress_cidr_config SEC(".maps");
 
+struct dns_server_endpoint {
+  __u32 addr;
+  __u16 port;
+};
+
+const struct dns_server_endpoint *unused __attribute__((unused));
+
 // map to store the upstream dns server address
 // this is used to verify the dst address (egress) or
 // src address (ingress).
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_IP_ENTRIES);
-  __type(key, __u32);   // upstream dns server address
-  __type(value, __u32); // noop
+  __type(key,
+         sizeof(struct dns_server_endpoint)); // upstream dns server endpoint
+  __type(value, __u32);                       // noop
   __uint(pinning, LIBBPF_PIN_BY_NAME);
 } dns_config SEC(".maps");
+
+struct proxy_redirect_config {
+  __u32 addr;
+  __u16 ifindex;
+};
+
+const struct proxy_redirect_config *unused3 __attribute__((unused));
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 1);
+  __type(key, __u32);
+  __type(value, sizeof(struct proxy_redirect_config));
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+} proxy_redirect_map SEC(".maps");
+
+struct proxy_redirect_dmac {
+  __u16 dmac2;
+  __u32 dmac1;
+};
+
+const struct proxy_redirect_dmac *unused4 __attribute__((unused));
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 1);
+  __type(key, __u32);
+  __type(value, sizeof(struct proxy_redirect_dmac));
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+} proxy_redirect_dmac_map SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 2048); // size of connection pool
+  __type(key, __u64);
+  __type(value, __u32);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
+} proxy_socket_cookie SEC(".maps");
 
 // packet metrics
 // the following #defines specify the indices in
@@ -210,99 +254,75 @@ int egress_cidr_allowed(__u32 key, __u32 daddr) {
   return TC_BLOCK;
 }
 
-// return 0 on success
-// return 1 on error
-int forward_dns(struct __sk_buff *skb) {
-  void *data = (void *)(long)skb->data;
-  void *data_end = (void *)(long)skb->data_end;
-  const __u8 dns_offset = sizeof(struct iphdr) + sizeof(struct udphdr);
-
-  struct iphdr *ip = (data);
-  struct udphdr *udp = (data + sizeof(struct iphdr));
-  if (data + dns_offset > data_end) {
-    return 1;
+long redirect_proxy(struct __sk_buff *skb, __u32 daddr) {
+  __u32 pkey = 0;
+  struct proxy_redirect_config *proxy_cfg =
+      bpf_map_lookup_elem(&proxy_redirect_map, &pkey);
+  if (proxy_cfg == NULL) {
+    return TC_ALLOW;
   }
 
-  struct event *ev;
-  ev = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
-  if (!ev) {
-    return 1;
+  struct proxy_redirect_dmac *dmac_cfg =
+      bpf_map_lookup_elem(&proxy_redirect_dmac_map, &pkey);
+  if (dmac_cfg == NULL) {
+    return TC_ALLOW;
   }
 
-  ev->pod_addr = ip->saddr;
-  ev->pod_port = udp->source;
-  ev->dst_port = udp->dest;
-  ev->dst_addr = ip->daddr;
-  for (int i = 0; i < MAX_PKT; i++) {
-    if (dns_offset + i > ip->tot_len) {
-      break;
-    }
-    int ok = bpf_skb_load_bytes(skb, dns_offset + i, &ev->pkt[i], 1);
-    if (ok != 0) {
-      break;
-    }
-    ev->len = i + 1;
-  }
+  bpf_skb_store_bytes(skb, 0, &dmac_cfg->dmac1, sizeof(dmac_cfg->dmac1), 0);
+  bpf_skb_store_bytes(skb, 4, &dmac_cfg->dmac2, sizeof(dmac_cfg->dmac2), 0);
 
-  __u32 avail_data = bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA);
-  __u32 ring_size = bpf_ringbuf_query(&events, BPF_RB_RING_SIZE);
-  __u32 cons_pos = bpf_ringbuf_query(&events, BPF_RB_CONS_POS);
-  __u32 prod_pos = bpf_ringbuf_query(&events, BPF_RB_PROD_POS);
-  metrics_set(METRICS_RINGBUF_AVAIL_DATA, avail_data);
-  metrics_set(METRICS_RINGBUF_RING_SIZE, ring_size);
-  metrics_set(METRICS_RINGBUF_CONS_POS, cons_pos);
-  metrics_set(METRICS_RINGBUF_PROD_POS, prod_pos);
+  // swap sour
+  bpf_skb_store_bytes(skb, IP_SRC_OFF, &daddr, sizeof(__u32), 0);
+  bpf_skb_store_bytes(skb, IP_DST_OFF, &proxy_cfg->addr, sizeof(__u32), 0);
 
-  bpf_ringbuf_submit(ev, 0);
-  return 0;
+  return bpf_redirect(proxy_cfg->ifindex, BPF_F_INGRESS);
 }
 
-SEC("cgroup_skb/egress")
-int egress(struct __sk_buff *skb) {
+SEC("classifier/cls")
+int classifier(struct __sk_buff *skb) {
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
 
-  struct iphdr *ip = (data);
-  if (data + sizeof(struct iphdr) + sizeof(struct udphdr) > data_end) {
-    return TC_ALLOW;
+  struct iphdr *ip = (data + sizeof(struct ethhdr));
+  struct udphdr *udp = (data + sizeof(struct ethhdr) + sizeof(struct iphdr));
+  if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) +
+          sizeof(struct udphdr) >
+      data_end) {
+    return TC_ACT_OK;
   }
 
-  __u32 key = ip->saddr;
+  // check if packet originated from dnsproxy
+  // this is trusted and shall be forwarded in any case
+  __u64 cookie = bpf_get_socket_cookie(skb);
+  __u32 *match = bpf_map_lookup_elem(&proxy_socket_cookie, &cookie);
+  if (match != NULL) {
+    return TC_ACT_OK;
+  }
 
-  // check if pod is subject to egress policies
-  __u32 *inner_map = bpf_map_lookup_elem(&egress_config, &key);
+  // check if source is subject to policies
+  // if not: pass;
+  __u32 *inner_map = bpf_map_lookup_elem(&egress_config, &ip->saddr);
   if (inner_map == NULL) {
-    return TC_ALLOW;
+    return TC_ACT_OK;
   }
 
-  // pass traffic if destination is upstream dns server
-  __u32 *ret = bpf_map_lookup_elem(&dns_config, &ip->daddr);
-  if (ret != NULL && *ret == 1) {
-    // dnsproxy uses a marked socket to make queries to the upstream
-    // dns server. Traffic should be forwarded without blocking.
-    if (skb->mark == 0x520) {
-      return TC_ALLOW;
-    }
-
-    metrics_inc(METRICS_EGRESS_DNS);
-    int ret = forward_dns(skb);
-
-    // DNS query is blocked here and forwarded to th skouter DNS server
-    // which will do the DNS lookup and send a response with a RAW socket
-    if (ret == 0) {
-      return TC_BLOCK;
-    }
-    return TC_ALLOW;
+  // check if this is the trusted dns endpoint.
+  // if so: redirect traffic back to userspace
+  struct dns_server_endpoint dns_key = {0};
+  dns_key.addr = ip->daddr;
+  dns_key.port = udp->dest;
+  __u32 *ret = bpf_map_lookup_elem(&dns_config, &dns_key);
+  if (ret != NULL) {
+    long ret = redirect_proxy(skb, ip->daddr);
+    bpf_printk("redirect mark=%d", skb->mark);
+    return ret;
   }
 
-  // bpf_printk("pod is subject to egress filter key=%d saddr=%d daddr=%d", key,
-  //            ip->saddr, ip->daddr);
-
-  if (egress_ip_allowed(key, ip->daddr) == TC_BLOCK &&
-      egress_cidr_allowed(key, ip->daddr) == TC_BLOCK) {
-    return TC_BLOCK;
+  // apply firewall rules
+  if (egress_ip_allowed(ip->saddr, ip->daddr) == TC_BLOCK &&
+      egress_cidr_allowed(ip->saddr, ip->daddr) == TC_BLOCK) {
+    return TC_ACT_SHOT;
   }
-
   return TC_ALLOW;
 }
 

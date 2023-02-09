@@ -2,10 +2,8 @@ package indices
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"regexp"
-	"strings"
 	"time"
 
 	v1alpha1 "github.com/moolen/skouter/api"
@@ -26,7 +24,7 @@ func Generate(
 	ctx context.Context,
 	k8sDynClient *dynamic.DynamicClient,
 	k8sClientSet *kubernetes.Clientset,
-	dnsCache *dnscache.Cache, allowedDNS []uint32,
+	dnsCache *dnscache.Cache, trustedDNSEndpoint,
 	nodeIP, nodeName string, gwAddr uint32, gwIfAddr uint32,
 ) (AddressIndex, CIDRIndex, HostIndex, RuleIndex, error) {
 	start := time.Now()
@@ -92,10 +90,9 @@ func Generate(
 			}
 		}
 
-		// add allowed dns servers
-		for _, addr := range allowedDNS {
-			egressIPs[addr] = 1
-		}
+		// add allowed dns server
+		addr, _, _ := net.SplitHostPort(trustedDNSEndpoint)
+		egressIPs[util.IPToUint(net.ParseIP(addr))] = 1
 
 		// add localhost CIDR 127.0.0.1/8
 		egressCIDRs["127.0.0.1/8"] = &net.IPNet{
@@ -142,56 +139,6 @@ func Generate(
 				hostIdx[hostname][key] = struct{}{}
 			}
 			continue
-		}
-
-		podList, err := k8sClientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-			FieldSelector: "spec.nodeName=" + nodeName,
-			LabelSelector: labels.FormatLabels(egress.Spec.PodSelector.MatchLabels),
-		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("unable to list pods: %w", err)
-		}
-
-		// for every pod: prepare address and hostname indices
-		// so we can do a lookup by pod key
-		for _, pod := range podList.Items {
-			// we do not want to apply policies for pods
-			// that are on the host network.
-			if pod.Status.PodIP == "" || pod.Spec.HostNetwork {
-				continue
-			}
-			podIP := net.ParseIP(pod.Status.PodIP)
-			if podIP == nil {
-				logger.Error(err, "unable to parse ip", "addr", pod.Status.PodIP)
-				continue
-			}
-			key := util.IPToUint(podIP)
-			if addrIdx[key] == nil {
-				addrIdx[key] = make(map[uint32]uint32)
-			}
-			if cidrIdx[key] == nil {
-				cidrIdx[key] = make(map[string]*net.IPNet)
-			}
-			if ruleIdx[key] == nil {
-				ruleIdx[key] = make(map[string]*regexp.Regexp)
-			}
-			// add known IPs/CIDRs to map
-			mergeKeyMap(addrIdx[key], egressIPs)
-			mergeNetMap(cidrIdx[key], egressCIDRs)
-			mergeRegexpMap(ruleIdx[key], egressRegexs)
-
-			for _, host := range hosts {
-				// we need to normalize this to a fqdn
-				hostname := host
-				if !strings.HasSuffix(host, ".") {
-					hostname += "."
-				}
-				if hostIdx[hostname] == nil {
-					hostIdx[hostname] = make(map[uint32]struct{})
-				}
-				hostIdx[hostname][key] = struct{}{}
-				mergeHostMap(addrIdx[key], dnsCache.Lookup(hostname))
-			}
 		}
 	}
 	return addrIdx, cidrIdx, hostIdx, ruleIdx, nil

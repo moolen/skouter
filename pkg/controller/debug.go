@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func DumpConfig(bpffs, storagePath string, cfg *rest.Config, nodeName, nodeIP string, allowedDNS []uint32) error {
+func DumpConfig(bpffs, storagePath string, cfg *rest.Config, nodeName, nodeIP string, allowedDNS string) error {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 

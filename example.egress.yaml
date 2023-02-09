@@ -1,55 +1,55 @@
-apiVersion: egress.skouter/v1alpha1
-kind: Egress
-metadata:
-  name: example
-spec:
-  podSelector:
-    matchLabels:
-      run: alpine
-  rules:
-    - domains:
-      - example.com
-      - httpbin.org
-    - cidrs:
-      - 127.0.0.1/8
-      - 1.2.3.4/24
-      - 140.82.121.3/24 # github.com
-    - fqdn:
-      - ".*.wikipedia.org" # de|en|... // 91.198.174.192
----
 # apiVersion: egress.skouter/v1alpha1
 # kind: Egress
 # metadata:
-#   name: host
+#   name: example
 # spec:
-#   nodeSelector:
-#     # applies to all nodes
-#     matchLabels: {}
+#   podSelector:
+#     matchLabels:
+#       run: alpine
 #   rules:
 #     - domains:
-#       - example.com # for testing
-#       - registry-1.docker.io
-#       - security.ubuntu.com
-#       - download.docker.com
-#       - registry.k8s.io
-#       fqdn:
-#       - .*.wikipedia.org
-#       ips:
-#       - 192.168.49.1
-#       - 192.168.49.2
-#       - 192.168.39.1
-#       - 192.168.126.1
-#       - 192.168.50.1
-#       - 192.168.122.1
-#       - 192.168.178.24
-#       #- 172.18.0.1 # DNS Nameserver
-#       - 172.18.0.2
-#       - 172.18.0.3
-#       - 172.18.0.4
-#       - 127.0.0.1
-#       - 127.0.0.11
-#       - 104.18.124.25 # ??? docker pull
-#       cidrs:
+#       - example.com
+#       - httpbin.org
+#     - cidrs:
 #       - 127.0.0.1/8
 #       - 1.2.3.4/24
 #       - 140.82.121.3/24 # github.com
+#     - fqdn:
+#       - ".*.wikipedia.org" # de|en|... // 91.198.174.192
+---
+apiVersion: egress.skouter/v1alpha1
+kind: Egress
+metadata:
+  name: host
+spec:
+  nodeSelector:
+    # applies to all nodes
+    matchLabels: {}
+  rules:
+    - domains:
+      - example.com # for testing
+      - registry-1.docker.io
+      - security.ubuntu.com
+      - download.docker.com
+      - registry.k8s.io
+      fqdn:
+      - .*.wikipedia.org
+      ips:
+      - 192.168.49.1
+      - 192.168.49.2
+      - 192.168.39.1
+      - 192.168.126.1
+      - 192.168.50.1
+      - 192.168.122.1
+      - 192.168.178.24
+      #- 172.18.0.1 # DNS Nameserver
+      - 172.18.0.2
+      - 172.18.0.3
+      - 172.18.0.4
+      - 127.0.0.1
+      - 127.0.0.11
+      - 104.18.124.25 # ??? docker pull
+      cidrs:
+      - 127.0.0.1/8
+      - 1.2.3.4/24
+      - 140.82.121.3/24 # github.com
