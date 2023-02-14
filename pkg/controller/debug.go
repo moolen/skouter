@@ -27,8 +27,8 @@ func DumpConfig(bpffs, storagePath string, cfg *rest.Config, nodeName, nodeIP st
 	reCache.DumpMap(t)
 	t.AppendSeparator()
 
-	egressConfigPath := filepath.Join(bpffs, BPFMountDir, "egress_config")
-	egressCidrConfigPath := filepath.Join(bpffs, BPFMountDir, "egress_cidr_config")
+	egressConfigPath := filepath.Join(bpffs, bpf.BPFMountDir, "egress_config")
+	egressCidrConfigPath := filepath.Join(bpffs, bpf.BPFMountDir, "egress_cidr_config")
 
 	egressConfig, err := ebpf.LoadPinnedMap(egressConfigPath, &ebpf.LoadPinOptions{
 		ReadOnly: true,
@@ -97,7 +97,7 @@ func DumpConfig(bpffs, storagePath string, cfg *rest.Config, nodeName, nodeIP st
 		return err
 	}
 
-	addrIdx, cidrIdx, hostIdx, ruleIdx, err := indices.Generate(context.Background(), dc, kc, dnscache.New(), allowedDNS, nodeIP, nodeName, 0, 0)
+	addrIdx, cidrIdx, hostIdx, ruleIdx, err := indices.Generate(context.Background(), dc, kc, dnscache.New(), allowedDNS, nodeIP, nodeName)
 	if err != nil {
 		return err
 	}

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf/ringbuf"
 	"github.com/miekg/dns"
 	dnscache "github.com/moolen/skouter/pkg/cache/dns"
 	"github.com/moolen/skouter/pkg/cache/fqdn"
@@ -21,10 +20,9 @@ import (
 )
 
 type DNSProxy struct {
-	// raw sockets for read/write
-	rd *ringbuf.Reader
-
 	UpstreamSocketCookies []uint64
+	BindAddr              string
+	BindPort              uint16
 	udpSockPool           *sock.UDPSocketPool
 	UDPServer             *dns.Server
 	TCPServer             *dns.Server
@@ -45,7 +43,7 @@ type DNSProxy struct {
 
 var logger = log.DefaultLogger.WithName("dnsproxy").V(1)
 
-func NewProxy(rd *ringbuf.Reader, dnsCache *dnscache.Cache, fqdnCache *fqdn.Cache, allowFunc func(key uint32, addr net.IP) error,
+func NewProxy(dnsCache *dnscache.Cache, fqdnCache *fqdn.Cache, allowFunc func(key uint32, addr net.IP) error,
 	nodeIP, trustedDNSServer string) (*DNSProxy, error) {
 	rawConn, err := (&net.ListenConfig{Control: sock.ControlFunc}).
 		ListenPacket(context.Background(), "ip:udp", "127.0.0.1")
@@ -61,41 +59,42 @@ func NewProxy(rd *ringbuf.Reader, dnsCache *dnscache.Cache, fqdnCache *fqdn.Cach
 	logger.Info("upstream socket cookies", "cookie", cookies)
 
 	p := &DNSProxy{
-		rd: rd,
+		UpstreamSocketCookies: cookies,
 		dnsClient: &dns.Client{
 			Net:            "udp",
 			Timeout:        time.Second * 2,
 			SingleInflight: false,
 		},
-		rawConn:               rawConn.(*net.IPConn),
-		dnsCache:              dnsCache,
-		fqdnCache:             fqdnCache,
-		allowFunc:             allowFunc,
-		nodeIP:                nodeIP,
-		trustedDNSEndpoint:    trustedDNSServer,
-		UpstreamSocketCookies: cookies,
-		udpSockPool:           connPool,
+		rawConn:            rawConn.(*net.IPConn),
+		dnsCache:           dnsCache,
+		fqdnCache:          fqdnCache,
+		allowFunc:          allowFunc,
+		nodeIP:             nodeIP,
+		trustedDNSEndpoint: trustedDNSServer,
+		udpSockPool:        connPool,
 
 		mu:      &sync.RWMutex{},
 		hostIdx: make(indices.HostIndex),
 		ruleIdx: make(indices.RuleIndex),
 	}
 
-	udpConn, tcpListener, err := sock.BindToAddr("", 53)
+	// let kernel pick a ephemeral port
+	udpConn, tcpListener, err := sock.BindToAddr("", 0)
 	if err != nil {
 		return nil, err
 	}
-	bindAddr := ":53"
-	logger.Info("binding to addr", "addr", bindAddr)
+	p.BindAddr = udpConn.LocalAddr().String()
+	p.BindPort = uint16(udpConn.LocalAddr().(*net.UDPAddr).Port)
+	logger.Info("binding to addr", "addr", p.BindAddr)
 	p.UDPServer = &dns.Server{
 		PacketConn: udpConn,
-		Addr:       bindAddr,
+		Addr:       p.BindAddr,
 		Net:        "udp",
 		Handler:    p,
 	}
 	p.TCPServer = &dns.Server{
 		Listener: tcpListener,
-		Addr:     bindAddr,
+		Addr:     p.BindAddr,
 		Net:      "tcp",
 		Handler:  p,
 	}

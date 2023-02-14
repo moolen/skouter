@@ -87,9 +87,8 @@ const struct dns_server_endpoint *unused __attribute__((unused));
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_IP_ENTRIES);
-  __type(key,
-         sizeof(struct dns_server_endpoint)); // upstream dns server endpoint
-  __type(value, __u32);                       // noop
+  __type(key, __u32);   // upstream dns server address
+  __type(value, __u16); // dest port
   __uint(pinning, LIBBPF_PIN_BY_NAME);
 } dns_config SEC(".maps");
 
@@ -109,8 +108,8 @@ struct {
 } proxy_redirect_map SEC(".maps");
 
 struct proxy_redirect_dmac {
-  __u16 dmac2;
-  __u32 dmac1;
+  __u8 dmac[6];
+  __u16 unused;
 };
 
 const struct proxy_redirect_dmac *unused4 __attribute__((unused));
@@ -254,7 +253,12 @@ int egress_cidr_allowed(__u32 key, __u32 daddr) {
   return TC_BLOCK;
 }
 
-long redirect_proxy(struct __sk_buff *skb, __u32 daddr) {
+long redirect_proxy(struct __sk_buff *skb, struct iphdr *ip, struct udphdr *udp,
+                    __u16 target_port) {
+  // verifier asks for it
+  if (udp == NULL || ip == NULL) {
+    return -1;
+  }
   __u32 pkey = 0;
   struct proxy_redirect_config *proxy_cfg =
       bpf_map_lookup_elem(&proxy_redirect_map, &pkey);
@@ -268,14 +272,17 @@ long redirect_proxy(struct __sk_buff *skb, __u32 daddr) {
     return TC_ALLOW;
   }
 
-  bpf_skb_store_bytes(skb, 0, &dmac_cfg->dmac1, sizeof(dmac_cfg->dmac1), 0);
-  bpf_skb_store_bytes(skb, 4, &dmac_cfg->dmac2, sizeof(dmac_cfg->dmac2), 0);
+  bpf_skb_store_bytes(skb, 0, &dmac_cfg->dmac, sizeof(dmac_cfg->dmac), 0);
 
-  // swap sour
-  bpf_skb_store_bytes(skb, IP_SRC_OFF, &daddr, sizeof(__u32), 0);
+  bpf_l4_csum_replace(skb, L4_CSUM_OFF, udp->dest, target_port, sizeof(__u16));
+  bpf_l3_csum_replace(skb, L3_CSUM_OFF, ip->daddr, proxy_cfg->addr, sizeof(__u16));
+  bpf_l3_csum_replace(skb, L3_CSUM_OFF, ip->saddr, ip->daddr, sizeof(__u16));
+
+  bpf_skb_store_bytes(skb, IP_SRC_OFF, &ip->daddr, sizeof(__u32), 0);
   bpf_skb_store_bytes(skb, IP_DST_OFF, &proxy_cfg->addr, sizeof(__u32), 0);
+  bpf_skb_store_bytes(skb, L4_PORT_OFF, &target_port, sizeof(target_port), 0);
 
-  return bpf_redirect(proxy_cfg->ifindex, BPF_F_INGRESS);
+  return bpf_redirect(skb->ifindex, BPF_F_INGRESS);
 }
 
 SEC("classifier/cls")
@@ -308,13 +315,10 @@ int classifier(struct __sk_buff *skb) {
 
   // check if this is the trusted dns endpoint.
   // if so: redirect traffic back to userspace
-  struct dns_server_endpoint dns_key = {0};
-  dns_key.addr = ip->daddr;
-  dns_key.port = udp->dest;
-  __u32 *ret = bpf_map_lookup_elem(&dns_config, &dns_key);
-  if (ret != NULL) {
-    long ret = redirect_proxy(skb, ip->daddr);
-    bpf_printk("redirect mark=%d", skb->mark);
+  __u16 *dst_port = bpf_map_lookup_elem(&dns_config, &ip->daddr);
+  if (dst_port != NULL) {
+    long ret = redirect_proxy(skb, ip, udp, *dst_port);
+    bpf_printk("redirect mark=%d ret=%d", skb->mark, ret);
     return ret;
   }
 

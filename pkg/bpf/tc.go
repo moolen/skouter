@@ -3,6 +3,7 @@ package bpf
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/cilium/ebpf"
 	"github.com/vishvananda/netlink"
@@ -42,30 +43,40 @@ func attachProgram(deviceName string, prog *ebpf.Program) error {
 	if prog == nil {
 		return errors.New("cannot attach a nil program")
 	}
-	link, err := netlink.LinkByName(deviceName)
+
+	linkList, err := netlink.LinkList()
 	if err != nil {
-		return fmt.Errorf("getting interface %s by name: %w", deviceName, err)
+		return err
 	}
 
-	if err := replaceQdisc(link); err != nil {
-		return fmt.Errorf("replacing clsact qdisc for interface %s: %w", link.Attrs().Name, err)
+	linkRE, err := regexp.Compile(deviceName)
+	if err != nil {
+		return fmt.Errorf("unable to compile device name regex %q: %w", deviceName, err)
 	}
+	for _, link := range linkList {
+		if !linkRE.MatchString(link.Attrs().Name) {
+			continue
+		}
+		if err := replaceQdisc(link); err != nil {
+			return fmt.Errorf("replacing clsact qdisc for interface %s: %w", link.Attrs().Name, err)
+		}
 
-	filter := &netlink.BpfFilter{
-		FilterAttrs: netlink.FilterAttrs{
-			LinkIndex: link.Attrs().Index,
-			Parent:    netlink.HANDLE_MIN_EGRESS,
-			Handle:    netlink.MakeHandle(0, 1),
-			Priority:  1,
-			Protocol:  unix.ETH_P_ALL,
-		},
-		Fd:           prog.FD(),
-		Name:         fmt.Sprintf("skouter-%s", link.Attrs().Name),
-		DirectAction: true,
-	}
+		filter := &netlink.BpfFilter{
+			FilterAttrs: netlink.FilterAttrs{
+				LinkIndex: link.Attrs().Index,
+				Parent:    netlink.HANDLE_MIN_EGRESS,
+				Handle:    netlink.MakeHandle(0, 1),
+				Priority:  1,
+				Protocol:  unix.ETH_P_ALL,
+			},
+			Fd:           prog.FD(),
+			Name:         fmt.Sprintf("skouter-%s", link.Attrs().Name),
+			DirectAction: true,
+		}
 
-	if err := netlink.FilterReplace(filter); err != nil {
-		return fmt.Errorf("replacing tc filter: %w", err)
+		if err := netlink.FilterReplace(filter); err != nil {
+			return fmt.Errorf("replacing tc filter: %w", err)
+		}
 	}
 
 	return nil

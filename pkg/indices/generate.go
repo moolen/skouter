@@ -25,7 +25,7 @@ func Generate(
 	k8sDynClient *dynamic.DynamicClient,
 	k8sClientSet *kubernetes.Clientset,
 	dnsCache *dnscache.Cache, trustedDNSEndpoint,
-	nodeIP, nodeName string, gwAddr uint32, gwIfAddr uint32,
+	nodeIP, nodeName string,
 ) (AddressIndex, CIDRIndex, HostIndex, RuleIndex, error) {
 	start := time.Now()
 	defer metrics.UpdateIndices.With(nil).Observe(time.Since(start).Seconds())
@@ -122,10 +122,6 @@ func Generate(
 			if ruleIdx[key] == nil {
 				ruleIdx[key] = make(map[string]*regexp.Regexp)
 			}
-			// host firewall needs to be allowed to send traffic to
-			// the default gateway and to localhost
-			egressIPs[gwAddr] = 1
-			egressIPs[gwIfAddr] = 1
 
 			// add known IPs/CIDRs to map
 			mergeKeyMap(addrIdx[key], egressIPs)

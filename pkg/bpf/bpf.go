@@ -3,6 +3,8 @@ package bpf
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cilium/ebpf"
@@ -14,7 +16,11 @@ type DNSServerEndpoint bpfDnsServerEndpoint
 type ProxyRedirectConfig bpfProxyRedirectConfig
 type ProxyRedirectDMAC bpfProxyRedirectDmac
 
-var logger = log.DefaultLogger.WithName("bpf").V(1)
+var (
+	// Name of the directory in /sys/fs/bpf that holds the pinned maps/progs
+	BPFMountDir = "skouter"
+	logger      = log.DefaultLogger.WithName("bpf").V(1)
+)
 
 type LoadedCollection struct {
 	HostEgress *ebpf.Program
@@ -34,7 +40,13 @@ type LoadedCollection struct {
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type dns_server_endpoint -type proxy_redirect_config -type proxy_redirect_dmac -type cidr_config_val bpf ./c/egress.c -- -I./c/headers
-func Load(pinPath string, auditMode bool) (*LoadedCollection, error) {
+func Load(bpffs string, auditMode bool) (*LoadedCollection, error) {
+	pinPath := filepath.Join(bpffs, BPFMountDir)
+	err := os.MkdirAll(pinPath, os.ModePerm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bpf fs subpath %q: %+v", pinPath, err)
+	}
+
 	objs := bpfObjects{}
 	spec, err := loadBpf()
 	if err != nil {

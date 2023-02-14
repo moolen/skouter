@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,9 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
-	"github.com/jackpal/gateway"
 	v1alpha1 "github.com/moolen/skouter/api"
 	"github.com/moolen/skouter/pkg/bpf"
 	dnscache "github.com/moolen/skouter/pkg/cache/dns"
@@ -50,15 +46,12 @@ type Controller struct {
 	updateChan    chan struct{}
 	netDeviceName string
 	bpffs         string
-	gwAddr        uint32
-	gwIfAddr      uint32
 
 	trustedDNSEndpoint        string
 	trustedDNSEndpointService string
 	dnsCache                  *dnscache.Cache
 	fqdnStore                 *fqdn.Cache
 	dnsproxy                  *dnsproxy.DNSProxy
-	ringbufReader             *ringbuf.Reader
 
 	idxMu *sync.RWMutex
 	// hostIdx is a map: hostname => map[pod-key]=>allowed-state
@@ -76,9 +69,6 @@ var (
 	// needs to be in sync with egress.c
 	// TODO: pull these settings from bytecode so there's no need to sync
 	ActionAllow = uint32(1)
-
-	// Name of the directory in /sys/fs/bpf that holds the pinned maps/progs
-	BPFMountDir = "skouter"
 
 	logger = log.DefaultLogger.WithName("controller")
 )
@@ -98,19 +88,6 @@ func New(
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, err
 	}
-
-	// TODO: make that configurable/extensible through CLI
-	//       a user may need to specify an IP address from a different interface
-	gwAddr, err := gateway.DiscoverGateway()
-	if err != nil {
-		return nil, err
-	}
-	gwIfAddr, err := gateway.DiscoverInterface()
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Info("discovered", "gw", gwAddr.String(), "gw-interface", gwIfAddr.String())
 
 	fqdnCache := fqdn.New(cacheStoragePath)
 	fqdnCache.Restore()
@@ -137,8 +114,6 @@ func New(
 		bpffs:                     bpffs,
 		trustedDNSEndpoint:        trustedDNSEndpoint,
 		trustedDNSEndpointService: trustedDNSEndpointService,
-		gwAddr:                    binary.LittleEndian.Uint32(gwAddr.To4()),
-		gwIfAddr:                  binary.LittleEndian.Uint32(gwIfAddr.To4()),
 		dnsCache:                  dnscache.New(),
 		fqdnStore:                 fqdnCache,
 		nodeName:                  nodeName,
@@ -153,11 +128,7 @@ func New(
 		return nil, err
 	}
 
-	ctrl.ringbufReader, err = ringbuf.NewReader(ctrl.bpf.EventsMap)
-	if err != nil {
-		return nil, err
-	}
-	ctrl.dnsproxy, err = dnsproxy.NewProxy(ctrl.ringbufReader, ctrl.dnsCache, fqdnCache, ctrl.AllowHost, ctrl.nodeIP, trustedDNSEndpoint)
+	ctrl.dnsproxy, err = dnsproxy.NewProxy(ctrl.dnsCache, fqdnCache, ctrl.AllowHost, ctrl.nodeIP, trustedDNSEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +175,25 @@ func (c *Controller) Run() error {
 	}
 
 	go c.dnsproxy.Start()
-	return c.bpf.Attach(c.netDeviceName)
+
+	// devices may be attached/detached during runtime,
+	// ensure that we attach our progs to all desired devices eventually
+	go func() {
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			default:
+				err := c.bpf.Attach(c.netDeviceName)
+				if err != nil {
+					logger.Error(err, "unable to attach device")
+				}
+				<-time.After(time.Second * 5)
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (c *Controller) configureMaps() error {
@@ -236,20 +225,27 @@ func (c *Controller) configureMaps() error {
 		Addr:    util.IPToUint(net.ParseIP(c.nodeIP)),
 		Ifindex: uint16(lnk.Attrs().Index),
 	}
-	logger.Info("setting proxy redirect map", "config", proxyCfg, "map value size", c.bpf.ProxyRedirectMap.ValueSize())
+	logger.Info("setting proxy redirect map", "config", proxyCfg, "map value size", c.bpf.ProxyRedirectMap.ValueSize(), "link", lnk)
 	err = c.bpf.ProxyRedirectMap.Put(uint32(0), &proxyCfg)
 	if err != nil {
 		return fmt.Errorf("unable to update proxy redirect map: %w", err)
 	}
+
+	// loopback does not have a hw addr
+	// hence we fallback to 0-values
+	hwAddr := []byte{0, 0, 0, 0, 0, 0}
+	if lnk.Attrs().HardwareAddr != nil {
+		hwAddr = lnk.Attrs().HardwareAddr
+	}
 	dmac := bpf.ProxyRedirectDMAC{
-		Dmac1: binary.LittleEndian.Uint32([]byte{
-			lnk.Attrs().HardwareAddr[0],
-			lnk.Attrs().HardwareAddr[1],
-			lnk.Attrs().HardwareAddr[2],
-			lnk.Attrs().HardwareAddr[3]}),
-		Dmac2: binary.LittleEndian.Uint16([]byte{
-			lnk.Attrs().HardwareAddr[4],
-			lnk.Attrs().HardwareAddr[5]}),
+		Dmac: [6]uint8{
+			hwAddr[0],
+			hwAddr[1],
+			hwAddr[2],
+			hwAddr[3],
+			hwAddr[4],
+			hwAddr[5],
+		},
 	}
 	err = c.bpf.ProxyRedirectDMACMap.Put(uint32(0), &dmac)
 	if err != nil {
@@ -270,12 +266,8 @@ func (c *Controller) addAllowedDNS(ip net.IP, port int) error {
 	if ip == nil || port == 0 {
 		return fmt.Errorf("cannot allow empty ip or port=0")
 	}
-	dnsConfigKey := bpf.DNSServerEndpoint{
-		Addr: util.IPToUint(ip),
-		Port: util.ToNetBytes16(uint16(port)),
-	}
-	logger.V(2).Info("add allowed dns endpoint", "config", dnsConfigKey)
-	err := c.bpf.DNSConfig.Put(&dnsConfigKey, ActionAllow)
+	logger.V(2).Info("add allowed dns endpoint", "ip", ip)
+	err := c.bpf.DNSConfig.Put(util.IPToUint(ip), util.ToNetBytes16(c.dnsproxy.BindPort))
 	if err != nil {
 		return fmt.Errorf("unable to set dns config: %w", err)
 	}
@@ -295,76 +287,6 @@ func (c *Controller) deleteAllowedDNS(ip net.IP, port int) error {
 	if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 		return fmt.Errorf("unable to set dns config: %w", err)
 	}
-	return nil
-}
-
-func (c *Controller) kubeDNSEndpointWatch() error {
-	if c.trustedDNSEndpoint == "" {
-		return nil
-	}
-	fields := strings.Split(c.trustedDNSEndpointService, "/")
-	if len(fields) != 2 {
-		return fmt.Errorf("unable to parse trustend service endpoint %q: unexpected format. expected <namespace>/<service>", c.trustedDNSEndpointService)
-	}
-	ns := strings.TrimSpace(fields[0])
-	svc := strings.TrimSpace(fields[1])
-	watcher, err := c.k8sClientSet.CoreV1().Endpoints(ns).Watch(c.ctx, metav1.ListOptions{
-		FieldSelector: "metadata.name=" + svc,
-	})
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		logger.Info("watching dns service endpoints", "namespace", ns, "service", svc)
-		for {
-			select {
-			case <-c.ctx.Done():
-				return
-			case ev := <-watcher.ResultChan():
-				if ev.Object == nil {
-					continue
-				}
-				logger.Info("received endpoint event", "event", ev)
-				ep, ok := ev.Object.(*corev1.Endpoints)
-				if !ok {
-					logger.Error(fmt.Errorf("unexpected watch object %#v", ev.Object), "")
-					continue
-				}
-
-				if ev.Type == watch.Deleted {
-					for _, s := range ep.Subsets {
-						for _, addr := range s.Addresses {
-							ip := net.ParseIP(addr.IP)
-							for _, port := range s.Ports {
-								if port.Protocol == corev1.ProtocolUDP {
-									err = c.deleteAllowedDNS(ip, int(port.Port))
-									if err != nil {
-										logger.Error(err, "unable to delete allowed dns ")
-									}
-								}
-							}
-						}
-					}
-				}
-				if ev.Type == watch.Added || ev.Type == watch.Modified {
-					for _, s := range ep.Subsets {
-						for _, addr := range s.Addresses {
-							ip := net.ParseIP(addr.IP)
-							for _, port := range s.Ports {
-								if port.Protocol == corev1.ProtocolUDP {
-									err = c.addAllowedDNS(ip, int(port.Port))
-									if err != nil {
-										logger.Error(err, "unable to delete allowed dns ")
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}()
 	return nil
 }
 
@@ -408,26 +330,90 @@ func debounceCallable(interval time.Duration, f func()) func() {
 }
 
 func (c *Controller) loadBPF() error {
-	pinPath := filepath.Join(c.bpffs, BPFMountDir)
-	err := os.MkdirAll(pinPath, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("failed to create bpf fs subpath: %+v", err)
-	}
-
-	coll, err := bpf.Load(pinPath, c.auditMode)
+	coll, err := bpf.Load(c.bpffs, c.auditMode)
 	if err != nil {
 		return fmt.Errorf("failed to load bpf maps: %+v", err)
 	}
-
 	c.bpf = coll
-
 	return err
 }
 
+func (c *Controller) kubeDNSEndpointWatch() error {
+	if c.trustedDNSEndpoint == "" {
+		return nil
+	}
+	fields := strings.Split(c.trustedDNSEndpointService, "/")
+	if len(fields) != 2 {
+		return fmt.Errorf("unable to parse trustend service endpoint %q: unexpected format. expected <namespace>/<service>", c.trustedDNSEndpointService)
+	}
+	ns := strings.TrimSpace(fields[0])
+	svc := strings.TrimSpace(fields[1])
+	listOpts := metav1.ListOptions{
+		FieldSelector: "metadata.name=" + svc,
+	}
+	watcher, err := c.k8sClientSet.CoreV1().Endpoints(ns).Watch(c.ctx, listOpts)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		logger.Info("watching dns service endpoints", "namespace", ns, "service", svc)
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case ev, ok := <-watcher.ResultChan():
+				if !ok {
+					logger.Info("endpoint watcher closed, recreating")
+					watcher, err = c.k8sClientSet.CoreV1().Endpoints(ns).Watch(c.ctx, listOpts)
+				}
+				ep, ok := ev.Object.(*corev1.Endpoints)
+				if !ok {
+					logger.Error(fmt.Errorf("unexpected watch object %#v", ev.Object), "")
+					continue
+				}
+
+				if ev.Type == watch.Deleted {
+					for _, s := range ep.Subsets {
+						for _, addr := range s.Addresses {
+							ip := net.ParseIP(addr.IP)
+							for _, port := range s.Ports {
+								if port.Protocol == corev1.ProtocolUDP {
+									err = c.deleteAllowedDNS(ip, int(port.Port))
+									if err != nil {
+										logger.Error(err, "unable to delete allowed dns ")
+									}
+								}
+							}
+						}
+					}
+				}
+				if ev.Type == watch.Added || ev.Type == watch.Modified {
+					for _, s := range ep.Subsets {
+						for _, addr := range s.Addresses {
+							ip := net.ParseIP(addr.IP)
+							for _, port := range s.Ports {
+								if port.Protocol == corev1.ProtocolUDP {
+									err = c.addAllowedDNS(ip, int(port.Port))
+									if err != nil {
+										logger.Error(err, "unable to delete allowed dns ")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}()
+	return nil
+}
+
 func (c *Controller) startPodWatcher() error {
-	podWatch, err := c.k8sClientSet.CoreV1().Pods("").Watch(c.ctx, metav1.ListOptions{
+	listOpts := metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + c.nodeName,
-	})
+	}
+	podWatch, err := c.k8sClientSet.CoreV1().Pods("").Watch(c.ctx, listOpts)
 	if err != nil {
 		return err
 	}
@@ -435,7 +421,11 @@ func (c *Controller) startPodWatcher() error {
 		logger.Info("starting pod watcher")
 		for {
 			select {
-			case ev := <-podWatch.ResultChan():
+			case ev, ok := <-podWatch.ResultChan():
+				if !ok {
+					logger.Info("pod watcher closed, recreating")
+					podWatch, err = c.k8sClientSet.CoreV1().Pods("").Watch(c.ctx, listOpts)
+				}
 				if ev.Type == watch.Error || ev.Type == "" {
 					continue
 				}
@@ -459,7 +449,11 @@ func (c *Controller) startEgressWatcher() error {
 		logger.Info("starting egress watcher")
 		for {
 			select {
-			case ev := <-egressWatch.ResultChan():
+			case ev, ok := <-egressWatch.ResultChan():
+				if !ok {
+					logger.Info("egress watcher closed, recreating")
+					egressWatch, err = c.k8sDynClient.Resource(v1alpha1.EgressGroupVersionResource).Watch(c.ctx, metav1.ListOptions{})
+				}
 				if ev.Type == watch.Error || ev.Type == "" {
 					continue
 				}
@@ -533,16 +527,18 @@ func (c *Controller) updateConfig() error {
 	if err := c.updateIndices(); err != nil {
 		return err
 	}
-
+	logger.Info("reconcile idx")
 	// reconcile bpf maps
 	wcstart := time.Now()
 	if err := c.fqdnStore.ReconcileIndex(c.flattenRules()); err != nil {
 		return err
 	}
+	logger.Info("reconcile addrmap")
 	metrics.ReconcileRegexpCache.With(nil).Observe(time.Since(wcstart).Seconds())
 	if err := c.reconcileAddrMap(); err != nil {
 		return err
 	}
+	logger.Info("reconcile cidrmap")
 	return c.reconcileCIDRMap()
 }
 
@@ -552,7 +548,7 @@ func (c *Controller) updateIndices() error {
 
 	addrIdx, cidrIdx, hostIdx, ruleIdx, err := indices.Generate(
 		c.ctx, c.k8sDynClient, c.k8sClientSet, c.dnsCache,
-		c.trustedDNSEndpoint, c.nodeIP, c.nodeName, c.gwAddr, c.gwIfAddr,
+		c.trustedDNSEndpoint, c.nodeIP, c.nodeName,
 	)
 	if err != nil {
 		return err
@@ -578,6 +574,5 @@ func (c *Controller) Close() {
 	if err != nil {
 		logger.Error(err, "unable to save fqdn store")
 	}
-	c.ringbufReader.Close()
 	c.bpf.Close()
 }
