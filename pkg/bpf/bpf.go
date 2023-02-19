@@ -9,6 +9,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/moolen/skouter/pkg/log"
+	"github.com/vishvananda/netlink"
 )
 
 type CidrConfigVal bpfCidrConfigVal
@@ -23,8 +24,9 @@ var (
 )
 
 type LoadedCollection struct {
-	HostEgress *ebpf.Program
-	deviceName string
+	HostIngress *ebpf.Program
+	HostEgress  *ebpf.Program
+	deviceName  string
 
 	EgressConfig         *EgressConfig
 	EgressCIDRConfig     *EgressCIDRConfig
@@ -84,6 +86,7 @@ func Load(bpffs string, auditMode bool) (*LoadedCollection, error) {
 		return nil, err
 	}
 	return &LoadedCollection{
+		//HostIngress: objs.bpfPrograms.Ingress,
 		HostEgress: objs.bpfPrograms.Classifier,
 
 		EgressConfig:         &EgressConfig{objs.bpfMaps.EgressConfig},
@@ -102,10 +105,15 @@ func (coll *LoadedCollection) Attach(deviceName string) error {
 	var err error
 	logger.Info("attaching to device", "device", deviceName)
 	coll.deviceName = deviceName
-	err = attachProgram(deviceName, coll.HostEgress)
+	err = attachProgram(deviceName, coll.HostEgress, netlink.HANDLE_MIN_EGRESS)
 	if err != nil {
 		return err
 	}
+
+	// err = attachProgram(deviceName, coll.HostIngress, netlink.HANDLE_MIN_INGRESS)
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
@@ -113,12 +121,19 @@ func (coll *LoadedCollection) Attach(deviceName string) error {
 func (coll *LoadedCollection) Close() error {
 	logger.Info("unloading bpf programs/maps")
 
-	err := detachProgram(coll.deviceName, coll.HostEgress)
+	err := detachProgram(coll.deviceName, coll.HostEgress, netlink.HANDLE_MIN_EGRESS)
 	if err != nil {
 		logger.Error(err, "unable to detach program", "device", coll.deviceName)
 	}
 	logger.Info("detached program", "device", coll.deviceName)
 
+	// err = detachProgram(coll.deviceName, coll.HostIngress, netlink.HANDLE_MIN_INGRESS)
+	// if err != nil {
+	// 	logger.Error(err, "unable to detach program", "device", coll.deviceName)
+	// }
+	// logger.Info("detached program", "device", coll.deviceName)
+
+	//coll.HostIngress.Close()
 	coll.HostEgress.Close()
 	coll.EventsMap.Close()
 	coll.EgressConfig.Close()

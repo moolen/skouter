@@ -59,6 +59,7 @@ var rootCmd = &cobra.Command{
 			cacheStoragePath,
 			trustedDNSEndpoint,
 			trustedDNSEndpointService,
+			dnsproxylisten,
 			auditMode)
 		if err != nil {
 			logger.Error(err, "unable to create controller")
@@ -125,6 +126,7 @@ var (
 	kubeconfig                string
 	netDeviceName             string
 	bpffs                     string
+	dnsproxylisten            string
 	trustedDNSEndpoint        string
 	trustedDNSEndpointService string
 )
@@ -137,6 +139,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&nodeName, "node-name", os.Getenv("NODE_NAME"), "")
 	rootCmd.PersistentFlags().StringVar(&nodeIP, "node-ip", os.Getenv("NODE_IP"), "ip address of this node. Used to filter egress traffic on the host namespace.")
 	rootCmd.Flags().BoolVar(&auditMode, "audit-mode", false, "enable audit mode - no actual blocking will be done. This must be specified on start-up and can not be changed during runtime. Metrics `audit_blocked_addr` will contain the IPs egressing")
+	rootCmd.Flags().StringVar(&dnsproxylisten, "dns-proxy-listen", ":13333", "dns proxy listen address/port. port 0 makes it to let the kernel pick a random port")
 	rootCmd.Flags().StringVar(&netDeviceName, "net-device-name", "eth0", "name of the network device to attach dns redirect proxy")
 	rootCmd.PersistentFlags().StringVar(&trustedDNSEndpoint, "trusted-dns-endpoint", "8.8.8.8:53", "set trusted dns server address and port. Traffic to this endpoint gets intercepted and re-routed through the proxy")
 	rootCmd.PersistentFlags().StringVar(&trustedDNSEndpointService, "trusted-dns-endpoint-service", "kube-system/kube-dns", "set trusted Kubernetes service. Traffic to the endpoints behind that service get intercepted and re-routed through the proxy. Must be in the form <namespace>/<service-name>")

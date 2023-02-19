@@ -44,7 +44,7 @@ type DNSProxy struct {
 var logger = log.DefaultLogger.WithName("dnsproxy").V(1)
 
 func NewProxy(dnsCache *dnscache.Cache, fqdnCache *fqdn.Cache, allowFunc func(key uint32, addr net.IP) error,
-	nodeIP, trustedDNSServer string) (*DNSProxy, error) {
+	nodeIP, dnsproxylisten, trustedDNSServer string) (*DNSProxy, error) {
 	rawConn, err := (&net.ListenConfig{Control: sock.ControlFunc}).
 		ListenPacket(context.Background(), "ip:udp", "127.0.0.1")
 	if err != nil {
@@ -78,8 +78,17 @@ func NewProxy(dnsCache *dnscache.Cache, fqdnCache *fqdn.Cache, allowFunc func(ke
 		ruleIdx: make(indices.RuleIndex),
 	}
 
+	addr, port, err := net.SplitHostPort(dnsproxylisten)
+	if err != nil {
+		return nil, fmt.Errorf("unable to split host/port of %q: %w", dnsproxylisten, err)
+	}
+	bindPort, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, fmt.Errorf("unable to convert %q to int", port)
+	}
+
 	// let kernel pick a ephemeral port
-	udpConn, tcpListener, err := sock.BindToAddr("", 0)
+	udpConn, tcpListener, err := sock.BindToAddr(addr, uint16(bindPort))
 	if err != nil {
 		return nil, err
 	}

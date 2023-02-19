@@ -22,7 +22,7 @@ COPY main.go main.go
 COPY Makefile Makefile
 
 RUN --mount=type=cache,target=/root/.cache/go-build,sharing=private \
-  make build
+  make build BPF_CFLAGS="-I /usr/include/x86_64-linux-gnu"
 
 FROM $RUNIMAGE as run
 

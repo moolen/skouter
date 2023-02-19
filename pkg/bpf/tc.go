@@ -39,7 +39,7 @@ func deleteQdisc(link netlink.Link) error {
 }
 
 // attachProgram attaches prog to link.
-func attachProgram(deviceName string, prog *ebpf.Program) error {
+func attachProgram(deviceName string, prog *ebpf.Program, direction uint32) error {
 	if prog == nil {
 		return errors.New("cannot attach a nil program")
 	}
@@ -64,7 +64,7 @@ func attachProgram(deviceName string, prog *ebpf.Program) error {
 		filter := &netlink.BpfFilter{
 			FilterAttrs: netlink.FilterAttrs{
 				LinkIndex: link.Attrs().Index,
-				Parent:    netlink.HANDLE_MIN_EGRESS,
+				Parent:    direction,
 				Handle:    netlink.MakeHandle(0, 1),
 				Priority:  1,
 				Protocol:  unix.ETH_P_ALL,
@@ -82,7 +82,7 @@ func attachProgram(deviceName string, prog *ebpf.Program) error {
 	return nil
 }
 
-func detachProgram(deviceName string, prog *ebpf.Program) error {
+func detachProgram(deviceName string, prog *ebpf.Program, direction uint32) error {
 	link, err := netlink.LinkByName(deviceName)
 	if err != nil {
 		return fmt.Errorf("getting interface %s by name: %w", deviceName, err)
@@ -90,7 +90,7 @@ func detachProgram(deviceName string, prog *ebpf.Program) error {
 	err = netlink.FilterDel(&netlink.BpfFilter{
 		FilterAttrs: netlink.FilterAttrs{
 			LinkIndex: link.Attrs().Index,
-			Parent:    netlink.HANDLE_MIN_EGRESS,
+			Parent:    direction,
 			Handle:    netlink.MakeHandle(0, 1),
 			Priority:  1,
 			Protocol:  unix.ETH_P_ALL,

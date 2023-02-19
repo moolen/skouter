@@ -82,7 +82,8 @@ func New(
 	nodeIP,
 	cacheStoragePath,
 	trustedDNSEndpoint,
-	trustedDNSEndpointService string,
+	trustedDNSEndpointService,
+	dnsproxylisten string,
 	auditMode bool) (*Controller, error) {
 	// Allow the current process to lock memory for eBPF resources.
 	if err := rlimit.RemoveMemlock(); err != nil {
@@ -128,7 +129,7 @@ func New(
 		return nil, err
 	}
 
-	ctrl.dnsproxy, err = dnsproxy.NewProxy(ctrl.dnsCache, fqdnCache, ctrl.AllowHost, ctrl.nodeIP, trustedDNSEndpoint)
+	ctrl.dnsproxy, err = dnsproxy.NewProxy(ctrl.dnsCache, fqdnCache, ctrl.AllowHost, ctrl.nodeIP, dnsproxylisten, trustedDNSEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +340,7 @@ func (c *Controller) loadBPF() error {
 }
 
 func (c *Controller) kubeDNSEndpointWatch() error {
-	if c.trustedDNSEndpoint == "" {
+	if c.trustedDNSEndpointService == "" {
 		return nil
 	}
 	fields := strings.Split(c.trustedDNSEndpointService, "/")

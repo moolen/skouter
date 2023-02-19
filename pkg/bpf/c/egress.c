@@ -1,6 +1,7 @@
 #include "headers/common.h"
 
 #define PROTO_UDP 17
+#define PROTO_TCP 6
 #define PORT_DNS 13568 // htons(53)
 
 #define MAX_IP_ENTRIES 512
@@ -13,13 +14,15 @@
 
 #define ETH_HLEN 14
 #define ETH_ALEN 6
-#define L3_CSUM_OFF (ETH_HLEN + offsetof(struct iphdr, check))
+#define IP_CSUM_OFF (ETH_HLEN + offsetof(struct iphdr, check))
 #define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
 #define L4_PORT_OFF                                                            \
   (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, dest))
-#define L4_CSUM_OFF                                                            \
+#define UDP_CSUM_OFF                                                           \
   (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, check))
+#define TCP_CSUM_OFF                                                           \
+  (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct tcphdr, check))
 
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -253,11 +256,17 @@ int egress_cidr_allowed(__u32 key, __u32 daddr) {
   return TC_BLOCK;
 }
 
-long redirect_proxy(struct __sk_buff *skb, struct iphdr *ip, struct udphdr *udp,
-                    __u16 target_port) {
-  // verifier asks for it
-  if (udp == NULL || ip == NULL) {
-    return -1;
+struct redirect_data {
+  __u32 orig_saddr;
+  __u32 orig_daddr;
+  __u16 orig_dport;
+  __u16 new_dport;
+  __u8 protocol;
+};
+
+long redirect_proxy(struct __sk_buff *skb, struct redirect_data *rr) {
+  if (rr == NULL) {
+    return TC_ALLOW;
   }
   __u32 pkey = 0;
   struct proxy_redirect_config *proxy_cfg =
@@ -266,23 +275,101 @@ long redirect_proxy(struct __sk_buff *skb, struct iphdr *ip, struct udphdr *udp,
     return TC_ALLOW;
   }
 
+  // TODO: replace this with fib_lookup if possible
   struct proxy_redirect_dmac *dmac_cfg =
       bpf_map_lookup_elem(&proxy_redirect_dmac_map, &pkey);
   if (dmac_cfg == NULL) {
     return TC_ALLOW;
   }
 
-  bpf_skb_store_bytes(skb, 0, &dmac_cfg->dmac, sizeof(dmac_cfg->dmac), 0);
+  int ret = bpf_skb_store_bytes(skb, 0, &dmac_cfg->dmac, sizeof(dmac_cfg->dmac),
+                                0);
+  ret = bpf_skb_store_bytes(skb, 6, &dmac_cfg->dmac, sizeof(dmac_cfg->dmac),
+                                0);
+  if (ret != 0) {
+    return -1;
+  }
 
-  bpf_l4_csum_replace(skb, L4_CSUM_OFF, udp->dest, target_port, sizeof(__u16));
-  bpf_l3_csum_replace(skb, L3_CSUM_OFF, ip->daddr, proxy_cfg->addr, sizeof(__u16));
-  bpf_l3_csum_replace(skb, L3_CSUM_OFF, ip->saddr, ip->daddr, sizeof(__u16));
+	// __be32 sum;
+	// sum = bpf_csum_diff(&rr->orig_daddr, sizeof(__u32), &proxy_cfg->addr,
+	// 		sizeof(proxy_cfg->addr), 0);
+	// if (bpf_skb_store_bytes(skb, ETH_HLEN + offsetof(struct iphdr, daddr),
+	//     &proxy_cfg->addr, sizeof(proxy_cfg->addr), 0) < 0) {
+	// 	return -1;
+	// }
+	// if (bpf_l3_csum_replace(skb, ETH_HLEN + offsetof(struct iphdr, check),
+	//     0, sum, 0) < 0) {
+	// 	return -1;
+	// }
 
-  bpf_skb_store_bytes(skb, IP_SRC_OFF, &ip->daddr, sizeof(__u32), 0);
-  bpf_skb_store_bytes(skb, IP_DST_OFF, &proxy_cfg->addr, sizeof(__u32), 0);
-  bpf_skb_store_bytes(skb, L4_PORT_OFF, &target_port, sizeof(target_port), 0);
+	// sum = bpf_csum_diff(&rr->orig_dport, sizeof(__u16), &rr->new_dport,
+	// 		sizeof(rr->new_dport), 0);
+	// if (bpf_skb_store_bytes(skb, ETH_HLEN + offsetof(struct iphdr, saddr),
+	//     &tunnel_source, sizeof(tunnel_source), 0) < 0) {
+	// 	ret = DROP_WRITE_ERROR;
+	// 	goto drop_err;
+	// }
+	// if (bpf_l3_csum_replace(skb, ETH_HLEN + offsetof(struct iphdr, check),
+	//     0, sum, 0) < 0) {
+	// 	ret = DROP_CSUM_L3;
+	// 	goto drop_err;
+	// }
 
-  return bpf_redirect(skb->ifindex, BPF_F_INGRESS);
+  __u32 l4_csum_offset = UDP_CSUM_OFF;
+  switch (rr->protocol) {
+  case PROTO_UDP:
+    l4_csum_offset = UDP_CSUM_OFF;
+    break;
+  case PROTO_TCP:
+    l4_csum_offset = TCP_CSUM_OFF;
+    break;
+  }
+
+  // set dst port
+  bpf_l4_csum_replace(skb, l4_csum_offset, rr->orig_dport, rr->new_dport,
+                      sizeof(__u16));
+  ret = bpf_skb_store_bytes(skb, L4_PORT_OFF, &rr->new_dport,
+                            sizeof(rr->new_dport), 0);
+  if (ret != 0) {
+    return -1;
+  }
+
+  // set src
+  //bpf_l3_csum_replace(skb, IP_CSUM_OFF, rr->orig_saddr, rr->orig_saddr,
+  //                     sizeof(__u16));
+  bpf_skb_store_bytes(skb, IP_SRC_OFF, &rr->orig_daddr, sizeof(__u32),
+                       0);
+
+  // set dst
+  //bpf_l3_csum_replace(skb, IP_CSUM_OFF, rr->orig_daddr, proxy_cfg->addr,
+  //                    sizeof(__u16));
+  ret = bpf_skb_store_bytes(skb, IP_DST_OFF, &proxy_cfg->addr, sizeof(__u32),
+                            0);
+  if (ret != 0) {
+    return -1;
+  }
+
+  return bpf_redirect(proxy_cfg->ifindex, BPF_F_INGRESS);
+}
+
+SEC("classifier/cls")
+int ingress(struct __sk_buff *skb) {
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+
+  struct iphdr *ip = (data + sizeof(struct ethhdr));
+  struct udphdr *udp = (data + sizeof(struct ethhdr) + sizeof(struct iphdr));
+  if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) +
+          sizeof(struct udphdr) >
+      data_end) {
+    return TC_ACT_OK;
+  }
+
+  if (udp->dest == PORT_DNS) {
+    bpf_printk("ingress DNS saddr=%lu daddr=%lu", ip->saddr, ip->daddr);
+  }
+
+  return TC_ACT_OK;
 }
 
 SEC("classifier/cls")
@@ -298,11 +385,20 @@ int classifier(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
+  if (udp->dest == PORT_DNS) {
+    bpf_printk("egress DNS saddr=%lu daddr=%lu", ip->saddr, ip->daddr);
+  }
+
   // check if packet originated from dnsproxy
   // this is trusted and shall be forwarded in any case
   __u64 cookie = bpf_get_socket_cookie(skb);
   __u32 *match = bpf_map_lookup_elem(&proxy_socket_cookie, &cookie);
   if (match != NULL) {
+    return TC_ACT_OK;
+  }
+
+  // TMP: allow marked traffic
+  if ((skb->mark & 0xb00) == 0xb00) {
     return TC_ACT_OK;
   }
 
@@ -317,7 +413,14 @@ int classifier(struct __sk_buff *skb) {
   // if so: redirect traffic back to userspace
   __u16 *dst_port = bpf_map_lookup_elem(&dns_config, &ip->daddr);
   if (dst_port != NULL) {
-    long ret = redirect_proxy(skb, ip, udp, *dst_port);
+
+    struct redirect_data rr = {0};
+    rr.orig_saddr = ip->saddr;
+    rr.orig_daddr = ip->daddr;
+    rr.orig_dport = udp->dest;
+    rr.new_dport = *dst_port;
+    rr.protocol = ip->protocol;
+    long ret = redirect_proxy(skb, &rr);
     bpf_printk("redirect mark=%d ret=%d", skb->mark, ret);
     return ret;
   }

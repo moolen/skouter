@@ -33,9 +33,8 @@ There are other implemenatation approaches for egress filtering:
 
 ### Limitations and edge cases
 
-* DNS over TCP is not supported, currently
-* IPv6 is not yet supported
-* may interfere with other eBPF-based tools (e.g. cilium)
+* DNS over TCP is not yet supported but possible
+* IPv6 is not yet supported but possible
 * depending on the CNI implementation, pods may also be subject to the same egress policies as the host (overlay networking)
 
 ## Further improvements
@@ -55,6 +54,9 @@ There are other implemenatation approaches for egress filtering:
 - [x] clean up deleted IPs
 - [x] drop initial DNS answer and respond from userspace
 - [x] ~~lift limitation of 256 adresses per node~~
+- [ ] instead of relying on regex use [cilium/matchpattern](https://github.com/cilium/cilium/blob/master/pkg/fqdn/matchpattern/matchpattern.go) package
+- [ ] support multiple trusted upstream server
+- [ ] pod traffic may be subject to redirect
 - [ ] consider pivoting into making this a central egress infrastructure by ip forwarding ip packets while still supporting kubernetes integration
 
 ## Example
