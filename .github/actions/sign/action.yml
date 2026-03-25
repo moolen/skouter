@@ -67,7 +67,7 @@ runs:
       run: |
         syft "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}" -o spdx-json=sbom-spdx.json
         cosign attest --yes --predicate sbom-spdx.json --type spdx "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
-        cosign verify-attestation --type spdx ${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }} | jq '.payload |= @base64d | .payload | fromjson'
+        cosign verify-attestation --type spdx --certificate-identity-regexp '^https://github.com/moolen/skouter/.github/workflows/.*$' --certificate-oidc-issuer https://token.actions.githubusercontent.com ${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }} | jq '.payload |= @base64d | .payload | fromjson'
 
     - name: Generate provenance
       uses: philips-labs/slsa-provenance-action@v0.7.2
@@ -85,4 +85,4 @@ runs:
       run: |
         jq '.predicate' provenance.att > provenance-predicate.att
         cosign attest --yes --predicate provenance-predicate.att --type slsaprovenance "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
-        cosign verify-attestation --type slsaprovenance ${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}
+        cosign verify-attestation --type slsaprovenance --certificate-identity-regexp '^https://github.com/moolen/skouter/.github/workflows/.*$' --certificate-oidc-issuer https://token.actions.githubusercontent.com ${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}
