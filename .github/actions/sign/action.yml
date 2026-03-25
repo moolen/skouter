@@ -23,6 +23,8 @@ runs:
 
     - name: Install cosign
       uses: sigstore/cosign-installer@v2
+      with:
+        cosign-release: v2.6.2
 
     - name: Setup Go
       uses: actions/setup-go@v3
@@ -56,7 +58,7 @@ runs:
       shell: bash
       env:
         COSIGN_EXPERIMENTAL: "1"
-      run: cosign sign -a GITHUB_ACTOR=${{ github.triggering_actor }} "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
+      run: cosign sign --yes -a GITHUB_ACTOR=${{ github.triggering_actor }} "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
 
     - name: Attach SBOM to image
       shell: bash
@@ -64,7 +66,7 @@ runs:
         COSIGN_EXPERIMENTAL: "1"
       run: |
         syft "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}" -o spdx-json=sbom-spdx.json
-        cosign attest --predicate sbom-spdx.json --type spdx "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
+        cosign attest --yes --predicate sbom-spdx.json --type spdx "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
         cosign verify-attestation --type spdx ${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }} | jq '.payload |= @base64d | .payload | fromjson'
 
     - name: Generate provenance
@@ -82,5 +84,5 @@ runs:
         COSIGN_EXPERIMENTAL: "1"
       run: |
         jq '.predicate' provenance.att > provenance-predicate.att
-        cosign attest --predicate provenance-predicate.att --type slsaprovenance "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
+        cosign attest --yes --predicate provenance-predicate.att --type slsaprovenance "${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}"
         cosign verify-attestation --type slsaprovenance ${{ inputs.image-name }}@${{ steps.container_info.outputs.digest }}
