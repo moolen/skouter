@@ -1,0 +1,1 @@
+{"permissions":{"allow":["Read(**)","Write(.patchpilot/output.json)","Shell(ls)","Shell(find)","Shell(rg)","Shell(grep)","Shell(cat)","Shell(head)","Shell(tail)","Shell(sed)","Shell(awk)"],"deny":["Shell(git)","Shell(gh)","Shell(curl)","Shell(wget)","Shell(rm)","Shell(mv)","Shell(cp)","Shell(sh)","Shell(bash)"]}}

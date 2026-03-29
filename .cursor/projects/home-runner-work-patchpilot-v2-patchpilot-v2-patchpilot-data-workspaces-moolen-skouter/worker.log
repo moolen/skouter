@@ -1,0 +1,329 @@
+[info] runServer socketPath=/tmp/.cursor/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-b742203/worker.sock
+[error] npx not found in PATH ERROR: [object Object]
+[info] Indexing now
+[info] Getting tree structure for workspacePath=/home/runner/work/patchpilot-v2/patchpilot-v2/.patchpilot-data/workspaces/moolen__skouter
+[info] Syncing merkle subtree path=. localHash=934b54a47fbeb9993043cafeab427678c1f97a869d76d9ca3c151f17d2c2029c remoteHash=
+[info] Syncing merkle subtree path=Makefile localHash=5e68877748027106ad12399802266bd84f5278e1f114a90fd30e91d3431872cb remoteHash=undefined
+[info] Applying change type=add relativePath=Makefile
+[info] Syncing merkle subtree path=.gitignore localHash=e71aac612ddd2e8713e38ef4923cfb5bd5cbf7a5488c55a1612ba46dd23558f4 remoteHash=undefined
+[info] Applying change type=add relativePath=.gitignore
+[info] Syncing merkle subtree path=diagrams.drawio localHash=ec2b72736fdea2202001a1adc012f960f3c0d5200cebf2e619cf51c12bacb818 remoteHash=undefined
+[info] Applying change type=add relativePath=diagrams.drawio
+[info] Syncing merkle subtree path=test localHash=a4d26a0f6c4c9e78e60356bf85225c0afc68aad4ae9af98b2ecb99f893cbad1f remoteHash=undefined
+[info] Syncing merkle subtree path=.patchpilot localHash=01380832122fde8f87c4a4e4e0212d2052a895dfaa04e862d4df4a4acbb00e65 remoteHash=undefined
+[info] Syncing merkle subtree path=example.egress.yaml localHash=0e2d921d94a486a82ac32fcd1a7dd35b34ef5105ffe4d89b08ddc487ba263dc7 remoteHash=undefined
+[info] Applying change type=add relativePath=example.egress.yaml
+[info] Syncing merkle subtree path=tools localHash=595da2001d23fbc838f9639e0f0b6205080880811b37361b088a1e56a9205353 remoteHash=undefined
+[info] Syncing merkle subtree path=crds localHash=25ebcf1f5c8621d69b9befd0c02e777dfc0ff6c36c61f7d32e9fb00734535752 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor localHash=47fa1f9eca5fb9b4b7497c669926b106e2008d5312ef9dc02274afb4dbb2b48d remoteHash=undefined
+[info] Syncing merkle subtree path=cmd localHash=8ea3a19ad0bd83a44d3fa3a6a4f486beefab810ece04fa6a59d5347cad714db0 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy localHash=4ba0ddd0871ffe0b8eb3c4da2737d453db5af48a68dfc7f690a13f2b3cd26a3a remoteHash=undefined
+[info] Syncing merkle subtree path=go.mod localHash=c3fd9db2c4bc0acfa5a532aa150fa6121ea97bf0408b05564fa9f8f9e0783744 remoteHash=undefined
+[info] Applying change type=add relativePath=go.mod
+[info] Syncing merkle subtree path=main.go localHash=d4651b5464194f6c97dab3a8349f908104c05f9ea8dd14eb109c45c452a9c708 remoteHash=undefined
+[info] Applying change type=add relativePath=main.go
+[info] Syncing merkle subtree path=.config localHash=cccacbd4be3d4fb7fd02954fc15d7e00122e44e321a52b03a673d95e78a713d0 remoteHash=undefined
+[info] Syncing merkle subtree path=README.md localHash=83fb32a33e80146d12eea480a3053cd0d06a817842eae39efaf9f6b44fd4b9de remoteHash=undefined
+[info] Applying change type=add relativePath=README.md
+[info] Syncing merkle subtree path=.github localHash=e0a23037d98a7909cc6eb9945766bae23637b84028d1013111f7145699097969 remoteHash=undefined
+[info] Syncing merkle subtree path=api localHash=1f29f967f382e69a2e4baa654a89f25b8cf28a95c7b28952f00e8cd89c3963f3 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg localHash=f04a6b6528b5544669d8f9d4db23b20625628c6589ff8e8ebcee1913c6175eae remoteHash=undefined
+[info] Syncing merkle subtree path=tools.go localHash=ea39c3a4ff97e4aee75849bf01318ab15b2a9230afca0f52668deaa48578844a remoteHash=undefined
+[info] Applying change type=add relativePath=tools.go
+[info] Syncing merkle subtree path=go.sum localHash=ae19cf979947a8a92f032b4315179a51d17e490ae11818e71744a23ecbd81083 remoteHash=undefined
+[info] Syncing merkle subtree path=Dockerfile localHash=3130e4a21c2724b710665d66da226289eccdef04479bcf05d81184403d03e137 remoteHash=undefined
+[info] Syncing merkle subtree path=test/suite localHash=940bcbeaf305c61c9491c27a9693494e4adc0e38038a714900fd0a96308fd416 remoteHash=undefined
+[info] Syncing merkle subtree path=test/README.md localHash=f4e4f57a2b4ce96f28397b93df3aedd804483aa0dc994b0e18f4aeee28129498 remoteHash=undefined
+[info] Syncing merkle subtree path=test/kind.yaml localHash=004a74df5af6f7d92d94261eed5b16cfc5cb3b522db2ec7bedbe87eb6919e4f9 remoteHash=undefined
+[info] Syncing merkle subtree path=test/.dockerignore localHash=41a468e074c4c7f148cee19d64e764985b4e4bbc7ed3e20ea7ded613ede54f56 remoteHash=undefined
+[info] Syncing merkle subtree path=test/Makefile localHash=56e1e29c7666c74040628cbcbeb0afb404356b958e8fc6afa95d68820cfd3bb8 remoteHash=undefined
+[info] Syncing merkle subtree path=.patchpilot/input localHash=9818c0421310738af07a62070ac3510b186737c8096e2e3087a65708d5892f69 remoteHash=undefined
+[info] Syncing merkle subtree path=.patchpilot/agent-logs localHash=3b7546ed79e3e5a7907381b093c5a182cbf364c5dd0443dfa956c8cca271cc33 remoteHash=undefined
+[info] Syncing merkle subtree path=tools/udprcv.go localHash=3161a092ea71179aa3687153a771db3f4cbd8bb78626751426d6d140ebfb0b8f remoteHash=undefined
+[info] Syncing merkle subtree path=tools/lsns localHash=a6df1f4b073766ec75d3a37251b95cfd66d5991e8672a069197c2d435c49b923 remoteHash=undefined
+[info] Syncing merkle subtree path=crds/egress.skouter_egresses.yaml localHash=43bbae9fb9dacc089d8bf749b04489e03e4c388b697960442b6b84bc58c932a1 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/projects localHash=92b6cc281843dcae9ec0123dce6cd26985ee20c0274d217b98eb80898474a8fc remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/statsig-cache.json localHash=6a8763619e014caa4774b979f623774bbff04e9bba1080dce8b363449faa88cd remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/cli.json localHash=5b4808493267ff37d548a31a679c7ab7755d531277d4eeb17c62ed07fb209a73 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/cli-config.json localHash=e8a57ee37be326e4fede8bd3e06dd73534a44c2fc361faa60d972f16694d445e remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor localHash=0b07744f246a69bab0454e334f5677063d4d61875acff6a180caf1a72b6ddc70 remoteHash=undefined
+[info] Syncing merkle subtree path=cmd/debug.go localHash=ce682d1d6bab2c1371c72bcf60cd683d057ff32472195d1911e2c45b6d275d56 remoteHash=undefined
+[info] Syncing merkle subtree path=cmd/root.go localHash=603e28c094e2166ecc497cb835aa4b7297298affeee1b476d57e13ddec20bdb4 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter localHash=7accadb0e5ec526e14b5c279672b94df78746a63a3a9e61dc855b1107c01303d remoteHash=undefined
+[info] Syncing merkle subtree path=.config/cursor localHash=46f2c98e1f7748631cfc90641e893e1d3e1d482e0b3aed99c35725b9246501a1 remoteHash=undefined
+[info] Syncing merkle subtree path=.github/actions localHash=369066d09524b91439819e4ba452b94c9db82bd827b25561caa201caf930557f remoteHash=undefined
+[info] Syncing merkle subtree path=.github/workflows localHash=f682c7294382e4251d322a680955ae07096d49cc6c49b7df858364c64fd2b3dc remoteHash=undefined
+[info] Syncing merkle subtree path=api/egress_types.go localHash=c7489b86510b51aaef85384cccb62a45fd12a6a9d1538bcb29032cbbd0e9c52c remoteHash=undefined
+[info] Syncing merkle subtree path=api/register.go localHash=e00ff2038ad080563fda251510bd62cf1e0d36e84269986c0b12193c33e21ec9 remoteHash=undefined
+[info] Syncing merkle subtree path=api/doc.go localHash=4cea271681fb4c0eb20d2faa181e3887933d6c09f5ce2ab1689e2b495eceb300 remoteHash=undefined
+[info] Syncing merkle subtree path=api/zz_generated.deepcopy.go localHash=fd03093da2b3d7a9ddbe0c4852355076779962f27696e7bd56816a2d52d71de9 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/sock localHash=c24eaac1128b48651c318d2250dc5868117d826fd2d367c0ca9df1e6266f8ed3 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/indices localHash=c78390ca9582e026fc8342d679d28170ae2a28553707aff247e15d02f2d6f5b7 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/controller localHash=8817f2e21a96d117801d948bb9d4a34d0cc06d037e0318ddde46ca50eb7f40e2 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/dnsproxy localHash=70f658d19ea3854fe3f5d307f420c909d5dd8013e2c0aaf8f539a9fb651b5772 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/netns localHash=be7ba6d4d17d5a60390d0bd97d6c33a7cfd951bf36c70f037f298cce3d81b60a remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf localHash=10fe72342f34451f5f320b7db9243197594498ff2e2efa56deb6f21969f86656 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache localHash=8a30f897c7c457a2165acaede57186435ed436ef990634fb5cb6b95d898b6a4e remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/util localHash=37ad7680efeb68b434195af6a7654f8faaefe1a476dbd4964b94499f2ca68770 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/metrics localHash=8d31765241456d308f9f084bdc1b54c6a4c874d2229d06d3c190d2e2c19451b6 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/log localHash=d0149de072c7853a80280d5714b26d106b2ee57ae972266fb5308a674423d0be remoteHash=undefined
+[info] Syncing merkle subtree path=test/suite/load_test.go localHash=5075091c54e071b652b223b8d06d95358332ca3743b09270086bcedcf599e9df remoteHash=undefined
+[info] Syncing merkle subtree path=test/suite/suite_test.go localHash=c5f19e52e1794419775770e715c2e419bca002c4747df092cce3be62db264121 remoteHash=undefined
+[info] Syncing merkle subtree path=test/suite/host_policies_test.go localHash=5945af97284a70183b2a335f946586bea37b1a0a52a4b4dd16576a3264ec3898 remoteHash=undefined
+[info] Syncing merkle subtree path=test/suite/util.go localHash=250a6829a7d38fffcd575224dbda45e74bc8efe738f596d702d5bcf73b7894bd remoteHash=undefined
+[info] Syncing merkle subtree path=.patchpilot/input/cve-remediation.json localHash=b2eee559cde00adc31a34dd937ebd9bf6a4d5d213a3353d57df54b6c977570b1 remoteHash=undefined
+[info] Syncing merkle subtree path=.patchpilot/agent-logs/cve-remediation.stderr.log localHash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 remoteHash=undefined
+[info] Syncing merkle subtree path=.patchpilot/agent-logs/cve-remediation.stdout.log localHash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 remoteHash=undefined
+[info] Syncing merkle subtree path=tools/udprcv.go/main.go localHash=26b8b6574a654211661c5c9ad849ba51aae330fb233cd165e91fdcc008d75e10 remoteHash=undefined
+[info] Syncing merkle subtree path=tools/lsns/main.go localHash=bf90b16c08ce9882adf209366c49ee6f25838469bd8ba806d15719e1cb778a51 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter localHash=72cbe690f125ca320e7500eb40e7250d8550c10de1e6d8dd87ada653dd1fc528 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/update-cursor-settings localHash=e47fabf7d18faad1f933a978e47a1bbc101df554f97aa75be81bfb72edb4506a remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/create-subagent localHash=6456c06c34dc54564bf8281f4b3daf07b27ae9860cb7a7ce26cbbc985fab8b12 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/.cursor-managed-skills-manifest.json localHash=be08f5c7d0a10ab4ac1e6b8aa821152e67107c28b04690afa745e626b8d116c3 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/migrate-to-skills localHash=aa88aa3ab3075a421e5a934fd9905d26eea31679d1e633e3200b740d91c8740c remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/shell localHash=c5e9c41b8843cb79a3a3257fb33b4d27b57c69a17d733c02c7cf1017e12b51e0 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/create-rule localHash=074f09b3b9d1c5e0ba22dcb350c99bf728e8182eb81721302fc1f68bd21f69f9 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/create-skill localHash=08651a24373b5eb0409ae37cea12358b02c47f23a7b0983ff1e9fc902ca8c236 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/.helmignore localHash=bb987e6a8ef45a99255d1d632812482d5f0f3255ea841520b4d90342df5fe2b3 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates localHash=50a2a67fa43b9a625b0c396dd05527402006b51f0b0849eb4afd6ffa11a66324 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/Chart.yaml localHash=5b823c40e75c0697f514558571d8cb26deb34cc0cb25db1f3216af33b85acbf4 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/values.yaml localHash=33fd38c6fb949c0322bc504378f5b7455526a80b2a6bec0b82aaf6d49a61aa02 remoteHash=undefined
+[info] Syncing merkle subtree path=.config/cursor/auth.json localHash=ce70399e1a6ba765bc2aec62b869635c8f7c134ca7e2f7592d442316576abd5c remoteHash=undefined
+[info] Syncing merkle subtree path=.github/actions/sign localHash=d9eefc7139ce88c7c44cf589e2c9045a0daeb6f344ba08386ab0cde81001c1e5 remoteHash=undefined
+[info] Syncing merkle subtree path=.github/workflows/release.yml localHash=43fc719b3b85df920d31d0036f3d08630ef823740018f8b391e976b5818fa429 remoteHash=undefined
+[info] Syncing merkle subtree path=.github/workflows/ci.yml localHash=394076c98a8196d5b63e3dbecc7c260cfa016bd37c71e0a25341ae344bc608a2 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/sock/socket.go localHash=083010727bdbc681026ee5a6dde559766cfaf99dec8e37878916fbbd193fc671 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/sock/pool.go localHash=3a76243039139babf97b66db8552bd7e58810a1cc84f7f8f98297cd154e47b36 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/indices/indices.go localHash=f95139ad29f1acb8af74884644d839611d26bd8ea138d0a4d2e5a5da14a10fbe remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/indices/generate.go localHash=20a2bbe92a3cea6ccd2f64b35266bd7e7011a9878a2d26f6bdf42e813f29ac3b remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/controller/controller.go localHash=e5cd7debe2f57930e5a0b7b7aee005457e033df56f3fb35e93d51e47b99b7e3b remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/controller/util.go localHash=74cea0036068e63906b3dd17c09e6778990d95091b276bf461663903e10fa300 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/controller/reconcile_maps.go localHash=0ee89e94d9653fa7d8b6f011e41745b02969a95996613950808a11fa200a0326 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/controller/debug.go localHash=48a716aa853ae51cc3bb6c0412ae39209d800b38e5d80f3ebf607fe28c55b066 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/dnsproxy/proxy.go localHash=00aef0c3b9497c6f669797b12bf3058e83594c1821cd4ace4eb91063f6fc6f12 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/dnsproxy/response.go localHash=227ccfceb4ec208434e2b9a7fb9a712f74e5019d18e1d9854a6ee9e3541b90e6 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/netns/netns.go localHash=26e42dd624cf8181a31e7f9f3d08069fbd2cfffbb20730e92661049342cb2149 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/bpf.go localHash=96990820f035dc730498d93668762fbca74df281477cee629f5c785b1611a208 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/tc.go localHash=fb741aee9f66a928cfa1b2452d5ae42443f9dee892f1626b61992a12da8d9117 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/egress_config_map.go localHash=a91ae7175585852e2d12a7b65104bf6f74c21b4717199f8de93e5e5e8f053a6e remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/egress_cidr_config_map.go localHash=5029bfec9ff1758e94b93dd2f69eace3e45b94316acd86b57cf4b21ad5dde42b remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c localHash=af3ee5fae6cf38de920303292ca8509637f5ba957d7754b26454a1b4188b2a98 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/dns localHash=5169ec0d74437ee2b9514117d27e443a7b665da079723fe1f480b6ab55f49a93 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/fqdn localHash=e3c4817d82decd979e47d280b1239f4e68253750b9e8a7d09e74df81f658d9bd remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/util/util.go localHash=feac7aaaefeb2d4b31b2674823244c867d683c46dc27234acbaf3afcd3864911 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/metrics/metrics_collector.go localHash=13c7d3b58a8ecc20a5bf8b3d1e46a83bd300e65b2291b4eba4ea53f96df2b7ee remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/log/log.go localHash=6f1e7cc033d2e8ba1fab8c8949687de206a7f46589c9b2dfd3695f55b0e742de remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter/.workspace-trusted localHash=fe07e86d5d0c170720b5e888f2591becc18fac217d99c281aa6908dba725b4a1 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter/worker.log localHash=66326a92827dcdbb1a8b989f2c5a0ed00472a38dcc7e27ca6946e454c9e3b5fa remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter/repo.json localHash=c8152dd72a0a7af64858bedf917090af8f36468e272e12858a93cc6ac6e07432 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/update-cursor-settings/SKILL.md localHash=c6167084385853d1ef001955f411d9929249b9bd5d1a599b31f46d232d72fe2d remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/create-subagent/SKILL.md localHash=ab46a80f90cb3810c3182a55b975b13bcf72e00e7fa907cf49fb3a30a02a3922 remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/migrate-to-skills/SKILL.md localHash=78c0483cc96ea3dc833f344ed928d425aff0c64cfcb02759fe5efe4a913a5b6b remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/shell/SKILL.md localHash=b354ce28c70af1d5c05bb6bf070a1823fadd470530993ab271a1cfcbe57ad4fe remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/create-rule/SKILL.md localHash=fe8499dfe93edbf8306df70498a7ea3572e0c8b340607137cbc836051520263c remoteHash=undefined
+[info] Syncing merkle subtree path=.cursor/skills-cursor/create-skill/SKILL.md localHash=f98064497c15d557ffaf2c81299f7c514b42c42c209c4f1efdfb0ef8c5dea5ab remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/rbac.yaml localHash=92e831b3b98bd64b6751badbd55fefb214f6cfa633df9c09c2c1722bc51cdaac remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/NOTES.txt localHash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/crds localHash=25ebcf1f5c8621d69b9befd0c02e777dfc0ff6c36c61f7d32e9fb00734535752 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/daemonset.yaml localHash=873450535a992a3209bca672e097e53b9d0e223aef69594e011fc9b4f69bd001 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/serviceaccount.yaml localHash=c7162cfd80c425d9a22348045c4f1bb227a0fcad41eaf2d6d964bbb879836627 remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/_helpers.tpl localHash=511a53a0ddf3890a44b52b7398ecf7faebad40b578182c5a0a93350988481d7c remoteHash=undefined
+[info] Syncing merkle subtree path=.github/actions/sign/action.yml localHash=bdafa18fd58b79aee73c7de12ce76a49fd47cfd09cf60be2fc977fb14417c544 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/headers localHash=e8f3e56bf9d9e315d9e867a99c8aba29a705d77ae35438bd101f69ff5ee980dd remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/egress.c localHash=561f3db0fcecea38690e61eebda6111acebf28299c82b1370388f6120c6bb36b remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/dns/cache.go localHash=c7eac6bf2ecd38dbb22ebbac58b04572b1368cb1bd40692840a996e12b537fc7 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/dns/hostname.go localHash=04fa84a980ee79020107804ff498c55b4a3d59467621f1a82de1bb03e37c2d20 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/fqdn/fqdn.go localHash=d5ea1717173a36236ef40682b83331de08e1a284e88a5b706ff45d1c4f712b90 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/fqdn/cache.go localHash=c05e5cbcabe897bb886739833219df450205bbdda097aa8ffa2bdcde85b7e740 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/cache/fqdn/store.go localHash=15fe0e1d9c9637b99e8ac84d56581cf03dc3358029240d8150f980a3ed1cf7ea remoteHash=undefined
+[info] Syncing merkle subtree path=deploy/skouter/templates/crds/egress.skouter_egresses.yaml localHash=43bbae9fb9dacc089d8bf749b04489e03e4c388b697960442b6b84bc58c932a1 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/headers/bpf_helpers.h localHash=b63575315028ade8fa1e91a02e8951c69569d889a97efc1074ce77593a05345d remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/headers/bpf_helper_defs.h localHash=f1d0527c2d4daef03c91e83587bc22e141c40eca59116f04ec25c58ed9ea320b remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/headers/bpf_tracing.h localHash=70cd33754a8f03cbee7fd625e8a1b9afc865ecb69ebb5ce0730562cbfa328df6 remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/headers/bpf_endian.h localHash=64b77c97b089ca06203d0451407844fe93933b4e36e7315a294745fa29d058fb remoteHash=undefined
+[info] Syncing merkle subtree path=pkg/bpf/c/headers/common.h localHash=fb975fe1b76bfa835373a9e20abe3c10a98a022f6f17d1f420b04372ba794e2b remoteHash=undefined
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=0a3ea385-ee12-496b-8d84-c5c7e7805c37 changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=9e7a5ade-518f-425d-889c-31589c823302 changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=b67fed16-30e5-4d46-ade5-66533de065f0 changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=2df73f6d-f9b5-4dc5-9e3f-a79846a300c6 changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=7312f1c6-0f5b-4333-a50e-80a2ecbee73c changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=8198a499-0242-4b97-b936-9ca6b2500f2a changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=14a14696-ce9c-4cb5-975b-48f2dd8ee696 changes=1
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating files requestId=b35a0cd7-0963-44f7-968c-3602b24ff967 changes=1
+[info] Updated files requestId=b67fed16-30e5-4d46-ade5-66533de065f0 response=[object Object]
+[info] Applying change type=add relativePath=go.sum
+[info] Applying change type=add relativePath=Dockerfile
+[info] Applying change type=add relativePath=test/README.md
+[info] Applying change type=add relativePath=test/kind.yaml
+[info] Applying change type=add relativePath=test/.dockerignore
+[info] Applying change type=add relativePath=test/Makefile
+[info] Applying change type=add relativePath=crds/egress.skouter_egresses.yaml
+[info] Applying change type=add relativePath=.cursor/statsig-cache.json
+[info] Applying change type=add relativePath=.cursor/cli.json
+[info] Applying change type=add relativePath=.cursor/cli-config.json
+[info] Applying change type=add relativePath=cmd/debug.go
+[info] Applying change type=add relativePath=cmd/root.go
+[info] Applying change type=add relativePath=api/egress_types.go
+[info] Applying change type=add relativePath=api/register.go
+[info] Applying change type=add relativePath=api/doc.go
+[info] Applying change type=add relativePath=api/zz_generated.deepcopy.go
+[info] Applying change type=add relativePath=test/suite/load_test.go
+[info] Applying change type=add relativePath=test/suite/suite_test.go
+[info] Applying change type=add relativePath=test/suite/host_policies_test.go
+[info] Applying change type=add relativePath=test/suite/util.go
+[info] Applying change type=add relativePath=.patchpilot/input/cve-remediation.json
+[info] Applying change type=add relativePath=.patchpilot/agent-logs/cve-remediation.stderr.log
+[info] Applying change type=add relativePath=.patchpilot/agent-logs/cve-remediation.stdout.log
+[info] Applying change type=add relativePath=tools/udprcv.go/main.go
+[info] Applying change type=add relativePath=tools/lsns/main.go
+[info] Applying change type=add relativePath=.cursor/skills-cursor/.cursor-managed-skills-manifest.json
+[info] Applying change type=add relativePath=deploy/skouter/.helmignore
+[info] Applying change type=add relativePath=deploy/skouter/Chart.yaml
+[info] Applying change type=add relativePath=deploy/skouter/values.yaml
+[info] Applying change type=add relativePath=.config/cursor/auth.json
+[info] Applying change type=add relativePath=.github/workflows/release.yml
+[info] Applying change type=add relativePath=.github/workflows/ci.yml
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating files requestId=1d5516ce-ae20-42a3-addd-77485eaf11fd changes=32
+[info] Updated files requestId=14a14696-ce9c-4cb5-975b-48f2dd8ee696 response=[object Object]
+[info] Applying change type=add relativePath=pkg/sock/socket.go
+[info] Applying change type=add relativePath=pkg/sock/pool.go
+[info] Applying change type=add relativePath=pkg/indices/indices.go
+[info] Applying change type=add relativePath=pkg/indices/generate.go
+[info] Applying change type=add relativePath=pkg/controller/controller.go
+[info] Applying change type=add relativePath=pkg/controller/util.go
+[info] Applying change type=add relativePath=pkg/controller/reconcile_maps.go
+[info] Applying change type=add relativePath=pkg/controller/debug.go
+[info] Applying change type=add relativePath=pkg/dnsproxy/proxy.go
+[info] Applying change type=add relativePath=pkg/dnsproxy/response.go
+[info] Applying change type=add relativePath=pkg/netns/netns.go
+[info] Applying change type=add relativePath=pkg/bpf/bpf.go
+[info] Applying change type=add relativePath=pkg/bpf/tc.go
+[info] Applying change type=add relativePath=pkg/bpf/egress_config_map.go
+[info] Applying change type=add relativePath=pkg/bpf/egress_cidr_config_map.go
+[info] Applying change type=add relativePath=pkg/util/util.go
+[info] Applying change type=add relativePath=pkg/metrics/metrics_collector.go
+[info] Applying change type=add relativePath=pkg/log/log.go
+[info] Applying change type=add relativePath=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter/.workspace-trusted
+[info] Applying change type=add relativePath=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter/worker.log
+[info] Applying change type=add relativePath=.cursor/projects/home-runner-work-patchpilot-v2-patchpilot-v2-patchpilot-data-workspaces-moolen-skouter/repo.json
+[info] Applying change type=add relativePath=.cursor/skills-cursor/update-cursor-settings/SKILL.md
+[info] Applying change type=add relativePath=.cursor/skills-cursor/create-subagent/SKILL.md
+[info] Applying change type=add relativePath=.cursor/skills-cursor/migrate-to-skills/SKILL.md
+[info] Applying change type=add relativePath=.cursor/skills-cursor/shell/SKILL.md
+[info] Applying change type=add relativePath=.cursor/skills-cursor/create-rule/SKILL.md
+[info] Applying change type=add relativePath=.cursor/skills-cursor/create-skill/SKILL.md
+[info] Applying change type=add relativePath=deploy/skouter/templates/rbac.yaml
+[info] Applying change type=add relativePath=deploy/skouter/templates/NOTES.txt
+[info] Applying change type=add relativePath=deploy/skouter/templates/daemonset.yaml
+[info] Applying change type=add relativePath=deploy/skouter/templates/serviceaccount.yaml
+[info] Applying change type=add relativePath=deploy/skouter/templates/_helpers.tpl
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating files requestId=dd33ba6d-6147-4668-8ff0-c177e6a66af8 changes=32
+[info] Updated files requestId=7312f1c6-0f5b-4333-a50e-80a2ecbee73c response=[object Object]
+[info] Applying change type=add relativePath=.github/actions/sign/action.yml
+[info] Applying change type=add relativePath=pkg/bpf/c/egress.c
+[info] Applying change type=add relativePath=pkg/cache/dns/cache.go
+[info] Applying change type=add relativePath=pkg/cache/dns/hostname.go
+[info] Applying change type=add relativePath=pkg/cache/fqdn/fqdn.go
+[info] Applying change type=add relativePath=pkg/cache/fqdn/cache.go
+[info] Applying change type=add relativePath=pkg/cache/fqdn/store.go
+[info] Applying change type=add relativePath=deploy/skouter/templates/crds/egress.skouter_egresses.yaml
+[info] Applying change type=add relativePath=pkg/bpf/c/headers/bpf_helpers.h
+[info] Applying change type=add relativePath=pkg/bpf/c/headers/bpf_helper_defs.h
+[info] Applying change type=add relativePath=pkg/bpf/c/headers/bpf_tracing.h
+[info] Applying change type=add relativePath=pkg/bpf/c/headers/bpf_endian.h
+[info] Applying change type=add relativePath=pkg/bpf/c/headers/common.h
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating file updateType=1 ancestorSpline=[object Object],[object Object],[object Object],[object Object],[object Object] partialPath=[object Object]
+[info] Updating files requestId=cb70b6ea-0fbb-4082-bb12-1f480cc4a6e5 changes=13
+[info] Updated files requestId=9e7a5ade-518f-425d-889c-31589c823302 response=[object Object]
+[info] Updated files requestId=8198a499-0242-4b97-b936-9ca6b2500f2a response=[object Object]
+[info] Updated files requestId=b35a0cd7-0963-44f7-968c-3602b24ff967 response=[object Object]
+[info] Updated files requestId=2df73f6d-f9b5-4dc5-9e3f-a79846a300c6 response=[object Object]
+[info] Updated files requestId=dd33ba6d-6147-4668-8ff0-c177e6a66af8 response=[object Object]
+[info] Updated files requestId=0a3ea385-ee12-496b-8d84-c5c7e7805c37 response=[object Object]
+[info] Updated files requestId=1d5516ce-ae20-42a3-addd-77485eaf11fd response=[object Object]
+[info] Updated files requestId=cb70b6ea-0fbb-4082-bb12-1f480cc4a6e5 response=[object Object]
+[info] Indexing finished

@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(ls)"
+    ],
+    "deny": []
+  },
+  "version": 1,
+  "editor": {
+    "vimMode": false
+  },
+  "model": {
+    "modelId": "default",
+    "displayModelId": "auto",
+    "displayName": "Auto",
+    "displayNameShort": "Auto",
+    "aliases": [
+      "auto"
+    ],
+    "maxMode": false
+  },
+  "hasChangedDefaultModel": true,
+  "privacyCache": {
+    "ghostMode": false,
+    "privacyMode": 4,
+    "updatedAt": 1774809062418
+  },
+  "authInfo": {
+    "email": "beller.moritz@googlemail.com",
+    "displayName": "Moritz Johner",
+    "userId": 217047319,
+    "authId": "google-oauth2|user_01JXSQBY96RAW6RVBXQB58APXS"
+  },
+  "network": {
+    "useHttp1ForAgent": false
+  },
+  "approvalMode": "allowlist",
+  "sandbox": {
+    "mode": "disabled",
+    "networkAccess": "user_config_with_defaults"
+  },
+  "attribution": {
+    "attributeCommitsToAgent": true,
+    "attributePRsToAgent": true
+  }
+}
